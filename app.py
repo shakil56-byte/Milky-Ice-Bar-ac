@@ -2,6 +2,7 @@ import streamlit as st
 import json
 import os
 from datetime import datetime
+from typing import Optional
 
 # ─────────────────────────────────────────────
 #  CONFIG
@@ -372,7 +373,7 @@ def bn_to_en(text: str) -> str:
     mapping = str.maketrans("০১২৩৪৫৬৭৮৯", "0123456789")
     return text.translate(mapping)
 
-def parse_amount(raw: str):
+def parse_amount(raw: str) -> Optional[float]:
     cleaned = bn_to_en(raw.strip().replace(",", "").replace("৳", "").replace(" ", ""))
     try:
         val = float(cleaned)
