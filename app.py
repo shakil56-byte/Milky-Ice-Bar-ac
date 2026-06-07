@@ -18,7 +18,7 @@ st.set_page_config(
 # ─────────────────────────────────────────────
 USERS = {
     "admin": {"password": "Newaz56", "role": "admin"},
-    "milky": {"password": "reju73",  "role": "viewer"},
+    "milky": {"password": "milky123",  "role": "viewer"},
 }
 
 # ─────────────────────────────────────────────
@@ -369,12 +369,10 @@ def render_expense_table(data, is_admin):
 #  BANGLA ↔ ENGLISH NUMBER CONVERTER
 # ─────────────────────────────────────────────
 def bn_to_en(text: str) -> str:
-    """Convert Bengali digit characters to ASCII digits."""
     mapping = str.maketrans("০১২৩৪৫৬৭৮৯", "0123456789")
     return text.translate(mapping)
 
-def parse_amount(raw: str) -> float | None:
-    """Parse a string that may contain Bengali or English digits."""
+def parse_amount(raw: str):
     cleaned = bn_to_en(raw.strip().replace(",", "").replace("৳", "").replace(" ", ""))
     try:
         val = float(cleaned)
@@ -387,8 +385,6 @@ def parse_amount(raw: str) -> float | None:
 # ─────────────────────────────────────────────
 def render_admin_inputs(data):
     st.markdown("---")
-
-    # small helper note
     st.markdown(
         "<p style='font-size:12px;color:#8b949e;margin-bottom:4px'>"
         "💡 টাকার ঘরে বাংলা (যেমন: ৫০০) বা ইংরেজি (500) দুটোই লেখা যাবে।"
@@ -396,15 +392,21 @@ def render_admin_inputs(data):
         unsafe_allow_html=True,
     )
 
+    # ── session_state keys for controlled inputs ──
+    for key in ["sale_name_v", "sale_amount_v", "exp_desc_v", "exp_amount_v"]:
+        if key not in st.session_state:
+            st.session_state[key] = ""
+
     col_s, col_e = st.columns(2)
 
     # ── SALES ──
     with col_s:
         st.markdown("#### ➕ নতুন বিক্রি যোগ করুন")
-        sale_name       = st.text_input("নাম", placeholder="যেমন: আইস বার, কুলফি...", key="sale_name")
-        sale_amount_raw = st.text_input("টাকা", placeholder="যেমন: ৫০০ বা 500", key="sale_amount_raw")
+        sale_name       = st.text_input("নাম", placeholder="যেমন: আইস বার, কুলফি...",
+                                        key="sale_name_v")
+        sale_amount_raw = st.text_input("টাকা", placeholder="যেমন: ৫০০ বা 500",
+                                        key="sale_amount_v")
 
-        # live preview
         parsed_sale = parse_amount(sale_amount_raw) if sale_amount_raw.strip() else None
         if sale_amount_raw.strip() and parsed_sale is None:
             st.caption("⚠️ সঠিক সংখ্যা লিখুন")
@@ -415,6 +417,9 @@ def render_admin_inputs(data):
             if sale_name.strip() and parsed_sale:
                 data["sales"].append({"name": sale_name.strip(), "amount": parsed_sale})
                 save_data(data)
+                # ── clear fields ──
+                st.session_state["sale_name_v"]   = ""
+                st.session_state["sale_amount_v"] = ""
                 st.success("বিক্রি যোগ হয়েছে!")
                 st.rerun()
             else:
@@ -423,8 +428,10 @@ def render_admin_inputs(data):
     # ── EXPENSES ──
     with col_e:
         st.markdown("#### ➕ নতুন খরচ যোগ করুন")
-        exp_desc        = st.text_input("বিবরণ", placeholder="যেমন: কাঁচামাল, ভাড়া...", key="exp_desc")
-        exp_amount_raw  = st.text_input("টাকা", placeholder="যেমন: ২৫০ বা 250", key="exp_amount_raw")
+        exp_desc       = st.text_input("বিবরণ", placeholder="যেমন: কাঁচামাল, ভাড়া...",
+                                       key="exp_desc_v")
+        exp_amount_raw = st.text_input("টাকা", placeholder="যেমন: ২৫০ বা 250",
+                                       key="exp_amount_v")
 
         parsed_exp = parse_amount(exp_amount_raw) if exp_amount_raw.strip() else None
         if exp_amount_raw.strip() and parsed_exp is None:
@@ -436,6 +443,9 @@ def render_admin_inputs(data):
             if exp_desc.strip() and parsed_exp:
                 data["expenses"].append({"desc": exp_desc.strip(), "amount": parsed_exp})
                 save_data(data)
+                # ── clear fields ──
+                st.session_state["exp_desc_v"]   = ""
+                st.session_state["exp_amount_v"] = ""
                 st.success("খরচ যোগ হয়েছে!")
                 st.rerun()
             else:
