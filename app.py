@@ -236,8 +236,8 @@ def login_page():
         <div style="margin-top:20px;background:#0d1117;border:1px solid #2a3548;
              border-radius:10px;padding:12px 16px;font-size:12px;color:#8b949e;text-align:left;">
             <b style="color:#e6edf3;">ডিফল্ট লগইন তথ্য:</b><br>
-            🔴 <b>Admin:</b> admin / admin123<br>
-            🟡 <b>Viewer:</b> viewer / view123
+            🔴 <b>Admin:</b> admin / Newaz56<br>
+            🟡 <b>Viewer:</b> viewer / reju73
         </div>
         """, unsafe_allow_html=True)
 
