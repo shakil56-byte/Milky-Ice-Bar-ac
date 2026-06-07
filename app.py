@@ -18,7 +18,7 @@ st.set_page_config(
 # ─────────────────────────────────────────────
 USERS = {
     "admin": {"password": "Newaz56", "role": "admin"},
-    "viewer": {"password": "reju73",  "role": "viewer"},
+    "milky": {"password": "reju73",  "role": "viewer"},
 }
 
 # ─────────────────────────────────────────────
