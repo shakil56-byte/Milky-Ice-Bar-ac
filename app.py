@@ -393,10 +393,14 @@ def render_admin_inputs(data):
         unsafe_allow_html=True,
     )
 
-    # ── session_state keys for controlled inputs ──
-    for key in ["sale_name_v", "sale_amount_v", "exp_desc_v", "exp_amount_v"]:
-        if key not in st.session_state:
-            st.session_state[key] = ""
+    # ── counter trick: incrementing key forces widget to re-mount (clears value) ──
+    if "sale_counter" not in st.session_state:
+        st.session_state["sale_counter"] = 0
+    if "exp_counter" not in st.session_state:
+        st.session_state["exp_counter"] = 0
+
+    sc = st.session_state["sale_counter"]
+    ec = st.session_state["exp_counter"]
 
     col_s, col_e = st.columns(2)
 
@@ -404,9 +408,9 @@ def render_admin_inputs(data):
     with col_s:
         st.markdown("#### ➕ নতুন বিক্রি যোগ করুন")
         sale_name       = st.text_input("নাম", placeholder="যেমন: আইস বার, কুলফি...",
-                                        key="sale_name_v")
+                                        key=f"sale_name_{sc}")
         sale_amount_raw = st.text_input("টাকা", placeholder="যেমন: ৫০০ বা 500",
-                                        key="sale_amount_v")
+                                        key=f"sale_amt_{sc}")
 
         parsed_sale = parse_amount(sale_amount_raw) if sale_amount_raw.strip() else None
         if sale_amount_raw.strip() and parsed_sale is None:
@@ -418,10 +422,7 @@ def render_admin_inputs(data):
             if sale_name.strip() and parsed_sale:
                 data["sales"].append({"name": sale_name.strip(), "amount": parsed_sale})
                 save_data(data)
-                # ── clear fields ──
-                st.session_state["sale_name_v"]   = ""
-                st.session_state["sale_amount_v"] = ""
-                st.success("বিক্রি যোগ হয়েছে!")
+                st.session_state["sale_counter"] += 1   # re-mounts inputs → clears them
                 st.rerun()
             else:
                 st.warning("নাম ও সঠিক টাকার পরিমাণ দিন!")
@@ -430,9 +431,9 @@ def render_admin_inputs(data):
     with col_e:
         st.markdown("#### ➕ নতুন খরচ যোগ করুন")
         exp_desc       = st.text_input("বিবরণ", placeholder="যেমন: কাঁচামাল, ভাড়া...",
-                                       key="exp_desc_v")
+                                       key=f"exp_desc_{ec}")
         exp_amount_raw = st.text_input("টাকা", placeholder="যেমন: ২৫০ বা 250",
-                                       key="exp_amount_v")
+                                       key=f"exp_amt_{ec}")
 
         parsed_exp = parse_amount(exp_amount_raw) if exp_amount_raw.strip() else None
         if exp_amount_raw.strip() and parsed_exp is None:
@@ -444,10 +445,7 @@ def render_admin_inputs(data):
             if exp_desc.strip() and parsed_exp:
                 data["expenses"].append({"desc": exp_desc.strip(), "amount": parsed_exp})
                 save_data(data)
-                # ── clear fields ──
-                st.session_state["exp_desc_v"]   = ""
-                st.session_state["exp_amount_v"] = ""
-                st.success("খরচ যোগ হয়েছে!")
+                st.session_state["exp_counter"] += 1    # re-mounts inputs → clears them
                 st.rerun()
             else:
                 st.warning("বিবরণ ও সঠিক টাকার পরিমাণ দিন!")
