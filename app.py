@@ -236,8 +236,8 @@ def login_page():
         <div style="margin-top:20px;background:#0d1117;border:1px solid #2a3548;
              border-radius:10px;padding:12px 16px;font-size:12px;color:#8b949e;text-align:left;">
             <b style="color:#e6edf3;">ডিফল্ট লগইন তথ্য:</b><br>
-            🔴 <b>Admin:</b> admin / Newaz56<br>
-            🟡 <b>Viewer:</b> viewer / reju73
+            🔴 <b>Admin:</b> admin / admin123<br>
+            🟡 <b>Viewer:</b> viewer / view123
         </div>
         """, unsafe_allow_html=True)
 
@@ -366,37 +366,80 @@ def render_expense_table(data, is_admin):
         st.markdown('<p class="empty-msg">কোনো খরচ যোগ হয়নি</p>', unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────
+#  BANGLA ↔ ENGLISH NUMBER CONVERTER
+# ─────────────────────────────────────────────
+def bn_to_en(text: str) -> str:
+    """Convert Bengali digit characters to ASCII digits."""
+    mapping = str.maketrans("০১২৩৪৫৬৭৮৯", "0123456789")
+    return text.translate(mapping)
+
+def parse_amount(raw: str) -> float | None:
+    """Parse a string that may contain Bengali or English digits."""
+    cleaned = bn_to_en(raw.strip().replace(",", "").replace("৳", "").replace(" ", ""))
+    try:
+        val = float(cleaned)
+        return val if val > 0 else None
+    except ValueError:
+        return None
+
+# ─────────────────────────────────────────────
 #  ADMIN INPUT FORMS
 # ─────────────────────────────────────────────
 def render_admin_inputs(data):
     st.markdown("---")
+
+    # small helper note
+    st.markdown(
+        "<p style='font-size:12px;color:#8b949e;margin-bottom:4px'>"
+        "💡 টাকার ঘরে বাংলা (যেমন: ৫০০) বা ইংরেজি (500) দুটোই লেখা যাবে।"
+        "</p>",
+        unsafe_allow_html=True,
+    )
+
     col_s, col_e = st.columns(2)
 
+    # ── SALES ──
     with col_s:
         st.markdown("#### ➕ নতুন বিক্রি যোগ করুন")
-        sale_name   = st.text_input("নাম", placeholder="যেমন: আইস বার, কুলফি...", key="sale_name")
-        sale_amount = st.number_input("টাকা", min_value=0.0, step=1.0, format="%.0f", key="sale_amount")
+        sale_name       = st.text_input("নাম", placeholder="যেমন: আইস বার, কুলফি...", key="sale_name")
+        sale_amount_raw = st.text_input("টাকা", placeholder="যেমন: ৫০০ বা 500", key="sale_amount_raw")
+
+        # live preview
+        parsed_sale = parse_amount(sale_amount_raw) if sale_amount_raw.strip() else None
+        if sale_amount_raw.strip() and parsed_sale is None:
+            st.caption("⚠️ সঠিক সংখ্যা লিখুন")
+        elif parsed_sale:
+            st.caption(f"✅ পরিমাণ: ৳ {parsed_sale:,.0f}")
+
         if st.button("✅  বিক্রি যোগ করুন", use_container_width=True, key="add_sale_btn"):
-            if sale_name.strip() and sale_amount > 0:
-                data["sales"].append({"name": sale_name.strip(), "amount": float(sale_amount)})
+            if sale_name.strip() and parsed_sale:
+                data["sales"].append({"name": sale_name.strip(), "amount": parsed_sale})
                 save_data(data)
                 st.success("বিক্রি যোগ হয়েছে!")
                 st.rerun()
             else:
-                st.warning("নাম ও টাকার পরিমাণ দিন!")
+                st.warning("নাম ও সঠিক টাকার পরিমাণ দিন!")
 
+    # ── EXPENSES ──
     with col_e:
         st.markdown("#### ➕ নতুন খরচ যোগ করুন")
-        exp_desc   = st.text_input("বিবরণ", placeholder="যেমন: কাঁচামাল, ভাড়া...", key="exp_desc")
-        exp_amount = st.number_input("টাকা", min_value=0.0, step=1.0, format="%.0f", key="exp_amount")
+        exp_desc        = st.text_input("বিবরণ", placeholder="যেমন: কাঁচামাল, ভাড়া...", key="exp_desc")
+        exp_amount_raw  = st.text_input("টাকা", placeholder="যেমন: ২৫০ বা 250", key="exp_amount_raw")
+
+        parsed_exp = parse_amount(exp_amount_raw) if exp_amount_raw.strip() else None
+        if exp_amount_raw.strip() and parsed_exp is None:
+            st.caption("⚠️ সঠিক সংখ্যা লিখুন")
+        elif parsed_exp:
+            st.caption(f"✅ পরিমাণ: ৳ {parsed_exp:,.0f}")
+
         if st.button("✅  খরচ যোগ করুন", use_container_width=True, key="add_exp_btn"):
-            if exp_desc.strip() and exp_amount > 0:
-                data["expenses"].append({"desc": exp_desc.strip(), "amount": float(exp_amount)})
+            if exp_desc.strip() and parsed_exp:
+                data["expenses"].append({"desc": exp_desc.strip(), "amount": parsed_exp})
                 save_data(data)
                 st.success("খরচ যোগ হয়েছে!")
                 st.rerun()
             else:
-                st.warning("বিবরণ ও টাকার পরিমাণ দিন!")
+                st.warning("বিবরণ ও সঠিক টাকার পরিমাণ দিন!")
 
 # ─────────────────────────────────────────────
 #  MAIN APP
@@ -427,14 +470,6 @@ def main():
             for k in ["logged_in", "username", "role"]:
                 st.session_state.pop(k, None)
             st.rerun()
-
-    # Viewer notice
-    if not is_admin:
-        st.markdown("""
-        <div class="viewer-banner">
-            👁️ আপনি <b>ভিউয়ার মোড</b>-এ আছেন — শুধু ডেটা দেখতে পারবেন, পরিবর্তন করা যাবে না।
-        </div>
-        """, unsafe_allow_html=True)
 
     # Summary
     render_summary(data)
