@@ -290,41 +290,76 @@ def render_summary(data):
     """, unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────
+#  SHARED ROW STYLES
+# ─────────────────────────────────────────────
+ROW_HEADER_CSS = """
+<style>
+.row-header {
+    display: flex; align-items: center;
+    background: #161b22;
+    border-bottom: 1px solid #2a3548;
+    padding: 7px 4px;
+    font-size: 11px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: #8b949e;
+    font-weight: 600;
+    border-radius: 8px 8px 0 0;
+}
+.row-item {
+    display: flex; align-items: center;
+    padding: 8px 4px;
+    border-bottom: 1px solid rgba(42,53,72,0.4);
+    font-size: 14px;
+}
+.row-item:hover { background: rgba(255,255,255,0.02); border-radius: 4px; }
+.col-num  { width: 32px; color: #8b949e; font-size: 12px; flex-shrink:0; }
+.col-name { flex: 1; font-weight: 500; }
+.col-amt-s { width: 110px; text-align:right; color: #3dffa0; font-weight:700; flex-shrink:0; padding-right:8px; }
+.col-amt-e { width: 110px; text-align:right; color: #ff5e7a; font-weight:700; flex-shrink:0; padding-right:8px; }
+</style>
+"""
+
+# ─────────────────────────────────────────────
 #  SALES TABLE
 # ─────────────────────────────────────────────
 def render_sales_table(data, is_admin):
     st.markdown('<p class="sec-title-sales">🟢 বিক্রি</p>', unsafe_allow_html=True)
+    st.markdown(ROW_HEADER_CSS, unsafe_allow_html=True)
 
     rows = data["sales"]
     if rows:
-        html = '<table class="data-table"><thead><tr>'
-        html += '<th>#</th><th>নাম</th><th>টাকা</th>'
-        if is_admin:
-            html += '<th></th>'
-        html += '</tr></thead><tbody>'
+        # header
+        st.markdown("""
+        <div class="row-header">
+            <span class="col-num">#</span>
+            <span class="col-name">নাম</span>
+            <span class="col-amt-s">টাকা</span>
+        </div>""", unsafe_allow_html=True)
 
         for i, s in enumerate(rows):
-            html += f"""<tr>
-                <td class="row-num">{i+1}</td>
-                <td>{s['name']}</td>
-                <td class="amt-s">৳ {s['amount']:,.0f}</td>
-            """
             if is_admin:
-                html += f'<td></td>'
-            html += '</tr>'
+                col_main, col_btn = st.columns([11, 1])
+            else:
+                col_main = st.container()
+                col_btn  = None
 
-        html += '</tbody></table>'
-        st.markdown(html, unsafe_allow_html=True)
+            with col_main:
+                st.markdown(f"""
+                <div class="row-item">
+                    <span class="col-num">{i+1}</span>
+                    <span class="col-name">{s['name']}</span>
+                    <span class="col-amt-s">৳ {s['amount']:,.0f}</span>
+                </div>""", unsafe_allow_html=True)
 
-        # Delete buttons — outside raw HTML (Streamlit limitation)
-        if is_admin:
-            for i, s in enumerate(rows):
-                col_a, col_b, col_c = st.columns([2, 3, 1])
-                with col_c:
-                    if st.button(f"✕", key=f"del_sale_{i}", help=f"'{s['name']}' মুছুন"):
+            if is_admin and col_btn:
+                with col_btn:
+                    st.markdown("<div style='margin-top:4px'>", unsafe_allow_html=True)
+                    if st.button("✕", key=f"del_sale_{i}", help=f"মুছুন"):
                         data["sales"].pop(i)
                         save_data(data)
                         st.rerun()
+                    st.markdown("</div>", unsafe_allow_html=True)
     else:
         st.markdown('<p class="empty-msg">কোনো বিক্রি যোগ হয়নি</p>', unsafe_allow_html=True)
 
@@ -333,36 +368,41 @@ def render_sales_table(data, is_admin):
 # ─────────────────────────────────────────────
 def render_expense_table(data, is_admin):
     st.markdown('<p class="sec-title-expense">🔴 খরচ</p>', unsafe_allow_html=True)
+    st.markdown(ROW_HEADER_CSS, unsafe_allow_html=True)
 
     rows = data["expenses"]
     if rows:
-        html = '<table class="data-table"><thead><tr>'
-        html += '<th>#</th><th>বিবরণ</th><th>টাকা</th>'
-        if is_admin:
-            html += '<th></th>'
-        html += '</tr></thead><tbody>'
+        # header
+        st.markdown("""
+        <div class="row-header">
+            <span class="col-num">#</span>
+            <span class="col-name">বিবরণ</span>
+            <span class="col-amt-e">টাকা</span>
+        </div>""", unsafe_allow_html=True)
 
         for i, e in enumerate(rows):
-            html += f"""<tr>
-                <td class="row-num">{i+1}</td>
-                <td>{e['desc']}</td>
-                <td class="amt-e">৳ {e['amount']:,.0f}</td>
-            """
             if is_admin:
-                html += '<td></td>'
-            html += '</tr>'
+                col_main, col_btn = st.columns([11, 1])
+            else:
+                col_main = st.container()
+                col_btn  = None
 
-        html += '</tbody></table>'
-        st.markdown(html, unsafe_allow_html=True)
+            with col_main:
+                st.markdown(f"""
+                <div class="row-item">
+                    <span class="col-num">{i+1}</span>
+                    <span class="col-name">{e['desc']}</span>
+                    <span class="col-amt-e">৳ {e['amount']:,.0f}</span>
+                </div>""", unsafe_allow_html=True)
 
-        if is_admin:
-            for i, e in enumerate(rows):
-                col_a, col_b, col_c = st.columns([2, 3, 1])
-                with col_c:
-                    if st.button(f"✕", key=f"del_exp_{i}", help=f"'{e['desc']}' মুছুন"):
+            if is_admin and col_btn:
+                with col_btn:
+                    st.markdown("<div style='margin-top:4px'>", unsafe_allow_html=True)
+                    if st.button("✕", key=f"del_exp_{i}", help=f"মুছুন"):
                         data["expenses"].pop(i)
                         save_data(data)
                         st.rerun()
+                    st.markdown("</div>", unsafe_allow_html=True)
     else:
         st.markdown('<p class="empty-msg">কোনো খরচ যোগ হয়নি</p>', unsafe_allow_html=True)
 
