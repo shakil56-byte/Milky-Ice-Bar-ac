@@ -18,8 +18,8 @@ st.set_page_config(
 #  USERS  (user: admin → full access, viewer → read-only)
 # ─────────────────────────────────────────────
 USERS = {
-    "admin": {"password": "admin123", "role": "admin"},
-    "viewer": {"password": "view123",  "role": "viewer"},
+    "admin": {"password": "Newaz56", "role": "admin"},
+    "milky": {"password": "milky123",  "role": "viewer"},
 }
 
 # ─────────────────────────────────────────────
