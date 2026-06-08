@@ -18,14 +18,27 @@ st.set_page_config(
 #  USERS  (user: admin → full access, viewer → read-only)
 # ─────────────────────────────────────────────
 USERS = {
-    "admin": {"password": "Newaz56", "role": "admin"},
-    "milky": {"password": "milky123",  "role": "viewer"},
+    "admin": {"password": "admin123", "role": "admin"},
+    "viewer": {"password": "view123",  "role": "viewer"},
 }
 
 # ─────────────────────────────────────────────
 #  DATA FILE  (persists between reloads)
 # ─────────────────────────────────────────────
-DATA_FILE = "data.json"
+DATA_FILE  = "data.json"
+PASS_FILE  = "passwords.json"
+
+def load_passwords():
+    if os.path.exists(PASS_FILE):
+        with open(PASS_FILE, "r", encoding="utf-8") as f:
+            saved = json.load(f)
+        for uname, pwd in saved.items():
+            if uname in USERS:
+                USERS[uname]["password"] = pwd
+
+def save_passwords():
+    with open(PASS_FILE, "w", encoding="utf-8") as f:
+        json.dump({u: USERS[u]["password"] for u in USERS}, f, ensure_ascii=False)
 
 def load_data():
     if os.path.exists(DATA_FILE):
@@ -233,14 +246,6 @@ def login_page():
             else:
                 st.error("❌ ইউজারনেম বা পাসওয়ার্ড ভুল!")
 
-        st.markdown("""
-        <div style="margin-top:20px;background:#0d1117;border:1px solid #2a3548;
-             border-radius:10px;padding:12px 16px;font-size:12px;color:#8b949e;text-align:left;">
-            <b style="color:#e6edf3;">ডিফল্ট লগইন তথ্য:</b><br>
-            🔴 <b>Admin:</b> admin / admin123<br>
-            🟡 <b>Viewer:</b> viewer / view123
-        </div>
-        """, unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────
 #  HEADER
@@ -490,11 +495,70 @@ def render_admin_inputs(data):
             else:
                 st.warning("বিবরণ ও সঠিক টাকার পরিমাণ দিন!")
 
+
+# ─────────────────────────────────────────────
+#  PASSWORD RESET  (admin only)
+# ─────────────────────────────────────────────
+def render_password_reset():
+    st.markdown("---")
+    st.markdown("#### 🔐 পাসওয়ার্ড পরিবর্তন করুন")
+
+    if "pw_counter" not in st.session_state:
+        st.session_state["pw_counter"] = 0
+    pc = st.session_state["pw_counter"]
+
+    col_a, col_v = st.columns(2)
+
+    # ── Admin password ──
+    with col_a:
+        st.markdown("""
+        <div style="background:#1c2230;border:1px solid #2a3548;border-radius:12px;padding:16px 18px;margin-bottom:4px">
+        <p style="color:#00c6ff;font-weight:700;margin-bottom:12px;font-size:14px">🔑 অ্যাডমিন পাসওয়ার্ড</p>
+        """, unsafe_allow_html=True)
+        new_admin_pw  = st.text_input("নতুন পাসওয়ার্ড",  type="password", key=f"new_admin_pw_{pc}",  placeholder="নতুন পাসওয়ার্ড লিখুন")
+        conf_admin_pw = st.text_input("নিশ্চিত করুন", type="password", key=f"conf_admin_pw_{pc}", placeholder="আবার লিখুন")
+        if st.button("✅ অ্যাডমিন পাসওয়ার্ড সেট করুন", use_container_width=True, key="save_admin_pw"):
+            if not new_admin_pw:
+                st.warning("পাসওয়ার্ড খালি রাখা যাবে না!")
+            elif new_admin_pw != conf_admin_pw:
+                st.error("পাসওয়ার্ড দুটো মিলছে না!")
+            else:
+                USERS["admin"]["password"] = new_admin_pw
+                save_passwords()
+                st.session_state["pw_counter"] += 1
+                st.success("✅ অ্যাডমিন পাসওয়ার্ড পরিবর্তন হয়েছে!")
+                st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    # ── Viewer password ──
+    with col_v:
+        st.markdown("""
+        <div style="background:#1c2230;border:1px solid #2a3548;border-radius:12px;padding:16px 18px;margin-bottom:4px">
+        <p style="color:#f7c948;font-weight:700;margin-bottom:12px;font-size:14px">👁️ ভিউয়ার পাসওয়ার্ড</p>
+        """, unsafe_allow_html=True)
+        new_view_pw  = st.text_input("নতুন পাসওয়ার্ড",  type="password", key=f"new_view_pw_{pc}",  placeholder="নতুন পাসওয়ার্ড লিখুন")
+        conf_view_pw = st.text_input("নিশ্চিত করুন", type="password", key=f"conf_view_pw_{pc}", placeholder="আবার লিখুন")
+        if st.button("✅ ভিউয়ার পাসওয়ার্ড সেট করুন", use_container_width=True, key="save_view_pw"):
+            if not new_view_pw:
+                st.warning("পাসওয়ার্ড খালি রাখা যাবে না!")
+            elif new_view_pw != conf_view_pw:
+                st.error("পাসওয়ার্ড দুটো মিলছে না!")
+            else:
+                USERS["viewer"]["password"] = new_view_pw
+                save_passwords()
+                st.session_state["pw_counter"] += 1
+                st.success("✅ ভিউয়ার পাসওয়ার্ড পরিবর্তন হয়েছে!")
+                st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
+
 # ─────────────────────────────────────────────
 #  MAIN APP
 # ─────────────────────────────────────────────
 def main():
     inject_css()
+
+    # ── Load saved passwords on every run ──
+    load_passwords()
 
     # ── Session defaults ──
     if "logged_in" not in st.session_state:
@@ -535,6 +599,7 @@ def main():
     # Admin input forms
     if is_admin:
         render_admin_inputs(data)
+        render_password_reset()
 
 if __name__ == "__main__":
     main()
