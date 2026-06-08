@@ -18,7 +18,7 @@ st.set_page_config(
 #  USERS  (user: admin → full access, viewer → read-only)
 # ─────────────────────────────────────────────
 USERS = {
-    "admin": {"password": "Newaz56", "role": "admin"},
+    "admin": {"password": "newaz56", "role": "admin"},
     "milky": {"password": "milky123",  "role": "viewer"},
 }
 
@@ -573,16 +573,39 @@ def main():
     data     = load_data()
     is_admin = st.session_state.role == "admin"
 
+    # Hide "Manage app" toolbar for viewer
+    if not is_admin:
+        st.markdown("""
+        <style>
+        [data-testid="stToolbar"],
+        [data-testid="manage-app-button"],
+        div[class*="StatusWidget"],
+        div[class*="viewerBadge"],
+        .stDeployButton,
+        #stDecoration,
+        header[data-testid="stHeader"] { display: none !important; visibility: hidden !important; }
+        </style>
+        """, unsafe_allow_html=True)
+
     # Header
     render_header()
 
-    # Logout button (top right)
-    _, _, logout_col = st.columns([6, 1, 1])
-    with logout_col:
-        if st.button("🚪 লগআউট"):
-            for k in ["logged_in", "username", "role"]:
-                st.session_state.pop(k, None)
-            st.rerun()
+    # Logout button (top right) — admin only
+    if is_admin:
+        _, _, logout_col = st.columns([6, 1, 1])
+        with logout_col:
+            if st.button("🚪 লগআউট"):
+                for k in ["logged_in", "username", "role"]:
+                    st.session_state.pop(k, None)
+                st.rerun()
+    else:
+        # viewer logout — subtle link at bottom right
+        _, _, logout_col = st.columns([8, 1, 1])
+        with logout_col:
+            if st.button("🚪 বের হন", key="viewer_logout"):
+                for k in ["logged_in", "username", "role"]:
+                    st.session_state.pop(k, None)
+                st.rerun()
 
     # Summary
     render_summary(data)
