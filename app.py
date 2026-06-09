@@ -1,7 +1,7 @@
 import streamlit as st
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 # ─────────────────────────────────────────────
@@ -15,18 +15,19 @@ st.set_page_config(
 )
 
 # ─────────────────────────────────────────────
-#  USERS  (user: admin → full access, viewer → read-only)
+#  USERS
 # ─────────────────────────────────────────────
 USERS = {
     "admin": {"password": "newaz56", "role": "admin"},
-    "milky": {"password": "milky123",  "role": "viewer"},
+    "milky": {"password": "milky123", "role": "viewer"},
 }
 
 # ─────────────────────────────────────────────
-#  DATA FILE  (persists between reloads)
+#  DATA FILE
 # ─────────────────────────────────────────────
-DATA_FILE  = "data.json"
-PASS_FILE  = "passwords.json"
+DATA_FILE = "data.json"
+PASS_FILE = "passwords.json"
+
 
 def load_passwords():
     if os.path.exists(PASS_FILE):
@@ -36,28 +37,113 @@ def load_passwords():
             if uname in USERS:
                 USERS[uname]["password"] = pwd
 
+
 def save_passwords():
     with open(PASS_FILE, "w", encoding="utf-8") as f:
         json.dump({u: USERS[u]["password"] for u in USERS}, f, ensure_ascii=False)
 
+
 def load_data():
+    """
+    New structure:
+    {
+      "dates": {
+        "9/Jun/2026": {"sales": [...], "expenses": [...]},
+        ...
+      }
+    }
+    Also supports legacy flat format for backward compatibility.
+    """
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {"sales": [], "expenses": []}
+            raw = json.load(f)
+        # ── Migrate old flat format ──
+        if "sales" in raw or "expenses" in raw:
+            today = get_today_key()
+            migrated = {
+                "dates": {
+                    today: {
+                        "sales": raw.get("sales", []),
+                        "expenses": raw.get("expenses", []),
+                    }
+                }
+            }
+            save_data_raw(migrated)
+            return migrated
+        return raw
+    return {"dates": {}}
 
-def save_data(data):
+
+def save_data_raw(data):
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
+
+def save_data(data):
+    save_data_raw(data)
+
+
+def get_day_data(data, date_key):
+    """Return sales/expenses for a specific date, creating if needed."""
+    if date_key not in data["dates"]:
+        data["dates"][date_key] = {"sales": [], "expenses": []}
+    return data["dates"][date_key]
+
+
 # ─────────────────────────────────────────────
-#  DATE HELPER
+#  DATE HELPERS
 # ─────────────────────────────────────────────
-def formatted_date():
-    months = ["Jan","Feb","Mar","Apr","May","Jun",
-              "Jul","Aug","Sep","Oct","Nov","Dec"]
-    d = datetime.today()
-    return f"{d.day}/{months[d.month-1]}/{d.year}"
+MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+          "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+
+def date_to_key(d: datetime) -> str:
+    return f"{d.day}/{MONTHS[d.month-1]}/{d.year}"
+
+
+def get_today_key() -> str:
+    return date_to_key(datetime.today())
+
+
+def key_to_date(key: str) -> datetime:
+    parts = key.split("/")
+    day = int(parts[0])
+    month = MONTHS.index(parts[1]) + 1
+    year = int(parts[2])
+    return datetime(year, month, day)
+
+
+def prev_date_key(key: str) -> str:
+    d = key_to_date(key)
+    return date_to_key(d - timedelta(days=1))
+
+
+def next_date_key(key: str) -> str:
+    d = key_to_date(key)
+    return date_to_key(d + timedelta(days=1))
+
+
+def get_sorted_date_keys(data) -> list:
+    """All date keys sorted oldest → newest."""
+    keys = list(data["dates"].keys())
+    return sorted(keys, key=lambda k: key_to_date(k))
+
+
+def get_carry_forward(data, date_key: str) -> float:
+    """
+    Sum all net profit/loss from every date BEFORE date_key.
+    Only dates that actually have data count.
+    """
+    total = 0.0
+    for k in get_sorted_date_keys(data):
+        if key_to_date(k) >= key_to_date(date_key):
+            break
+        day = data["dates"][k]
+        s = sum(x["amount"] for x in day.get("sales", []))
+        e = sum(x["amount"] for x in day.get("expenses", []))
+        total += (s - e)
+    return total
+
 
 # ─────────────────────────────────────────────
 #  GLOBAL CSS
@@ -72,12 +158,9 @@ def inject_css():
         background-color: #0d1117;
         color: #e6edf3;
     }
-
-    /* Hide Streamlit default header/footer */
     #MainMenu, footer, header { visibility: hidden; }
     .block-container { padding-top: 1rem !important; }
 
-    /* ── App Header ── */
     .app-header {
         text-align: center;
         padding: 22px 10px 14px;
@@ -116,11 +199,9 @@ def inject_css():
     .role-admin  { background: rgba(0,198,255,0.15); color: #00c6ff; border: 1px solid rgba(0,198,255,0.3); }
     .role-viewer { background: rgba(247,201,72,0.15); color: #f7c948; border: 1px solid rgba(247,201,72,0.3); }
 
-    /* ── Section titles ── */
     .sec-title-sales   { color: #3dffa0; font-size: 17px; font-weight: 700; letter-spacing:1px; }
     .sec-title-expense { color: #ff5e7a; font-size: 17px; font-weight: 700; letter-spacing:1px; }
 
-    /* ── Summary cards ── */
     .sum-row {
         display: flex;
         gap: 12px;
@@ -138,39 +219,80 @@ def inject_css():
     }
     .sum-card .lbl { font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; color: #8b949e; }
     .sum-card .val { font-size: 22px; font-weight: 700; margin-top: 4px; }
-    .c-green { color: #3dffa0; }
-    .c-red   { color: #ff5e7a; }
-    .c-gold  { color: #f7c948; }
-    .c-muted { color: #8b949e; }
 
-    /* ── Data table ── */
-    .data-table {
-        width: 100%;
-        border-collapse: collapse;
-        font-size: 14px;
-        margin-bottom: 4px;
+    /* Carry forward card — distinct styling */
+    .cf-card {
+        flex: 1;
+        min-width: 120px;
+        background: linear-gradient(135deg, rgba(180,120,255,0.12), rgba(100,80,200,0.08));
+        border: 1px solid rgba(180,120,255,0.35);
+        border-radius: 14px;
+        padding: 14px 18px;
+        text-align: center;
     }
-    .data-table thead th {
+    .cf-card .lbl { font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; color: #a78bfa; }
+    .cf-card .val { font-size: 22px; font-weight: 700; margin-top: 4px; }
+
+    .c-green  { color: #3dffa0; }
+    .c-red    { color: #ff5e7a; }
+    .c-gold   { color: #f7c948; }
+    .c-purple { color: #c084fc; }
+    .c-muted  { color: #8b949e; }
+
+    /* Date nav */
+    .date-nav {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        margin-bottom: 18px;
+        background: #1c2230;
+        border: 1px solid #2a3548;
+        border-radius: 14px;
+        padding: 10px 18px;
+    }
+    .date-nav .cur-date {
+        font-size: 16px;
+        font-weight: 700;
+        color: #f7c948;
+        min-width: 140px;
+        text-align: center;
+    }
+    .date-nav .today-tag {
+        background: rgba(61,255,160,0.12);
+        border: 1px solid rgba(61,255,160,0.3);
+        color: #3dffa0;
+        font-size: 11px;
+        padding: 2px 8px;
+        border-radius: 10px;
+        font-weight: 600;
+    }
+
+    /* Row styles */
+    .row-header {
+        display: flex; align-items: center;
         background: #161b22;
-        color: #8b949e;
+        border-bottom: 1px solid #2a3548;
+        padding: 7px 4px;
         font-size: 11px;
         letter-spacing: 1.5px;
         text-transform: uppercase;
-        padding: 9px 12px;
-        border-bottom: 1px solid #2a3548;
-        text-align: left;
+        color: #8b949e;
+        font-weight: 600;
+        border-radius: 8px 8px 0 0;
     }
-    .data-table thead th:last-child { text-align: right; }
-    .data-table tbody tr { border-bottom: 1px solid rgba(42,53,72,0.5); }
-    .data-table tbody tr:hover { background: rgba(255,255,255,0.025); }
-    .data-table tbody td { padding: 9px 12px; vertical-align: middle; }
-    .data-table tbody td:last-child { text-align: right; }
-    .row-num { color: #8b949e; font-size: 12px; }
-    .amt-s { color: #3dffa0; font-weight: 700; }
-    .amt-e { color: #ff5e7a; font-weight: 700; }
-    .empty-msg { text-align: center; color: #8b949e; font-style: italic; padding: 24px; }
+    .row-item {
+        display: flex; align-items: center;
+        padding: 8px 4px;
+        border-bottom: 1px solid rgba(42,53,72,0.4);
+        font-size: 14px;
+    }
+    .row-item:hover { background: rgba(255,255,255,0.02); border-radius: 4px; }
+    .col-num  { width: 32px; color: #8b949e; font-size: 12px; flex-shrink:0; }
+    .col-name { flex: 1; font-weight: 500; }
+    .col-amt-s { width: 110px; text-align:right; color: #3dffa0; font-weight:700; flex-shrink:0; padding-right:8px; }
+    .col-amt-e { width: 110px; text-align:right; color: #ff5e7a; font-weight:700; flex-shrink:0; padding-right:8px; }
 
-    /* ── Login box ── */
     .login-wrap {
         max-width: 400px;
         margin: 80px auto 0;
@@ -188,7 +310,6 @@ def inject_css():
     }
     .login-wrap .login-sub { font-size: 13px; color: #8b949e; margin-bottom: 24px; }
 
-    /* Streamlit input overrides */
     div[data-testid="stTextInput"] input,
     div[data-testid="stNumberInput"] input {
         background: #0d1117 !important;
@@ -204,19 +325,10 @@ def inject_css():
     }
     div[data-testid="stAlert"] { border-radius: 10px !important; }
 
-    /* Viewer info banner */
-    .viewer-banner {
-        background: rgba(247,201,72,0.08);
-        border: 1px solid rgba(247,201,72,0.25);
-        border-radius: 10px;
-        padding: 10px 16px;
-        color: #f7c948;
-        font-size: 13px;
-        margin-bottom: 18px;
-        text-align: center;
-    }
+    .empty-msg { text-align: center; color: #8b949e; font-style: italic; padding: 24px; }
     </style>
     """, unsafe_allow_html=True)
+
 
 # ─────────────────────────────────────────────
 #  LOGIN PAGE
@@ -233,7 +345,7 @@ def login_page():
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.markdown("<br>", unsafe_allow_html=True)
-        username = st.text_input("👤 ইউজারনেম", placeholder="username লিখুন", label_visibility="visible")
+        username = st.text_input("👤 ইউজারনেম", placeholder="username লিখুন")
         password = st.text_input("🔒 পাসওয়ার্ড", type="password", placeholder="password লিখুন")
         st.markdown("<br>", unsafe_allow_html=True)
 
@@ -250,7 +362,7 @@ def login_page():
 # ─────────────────────────────────────────────
 #  HEADER
 # ─────────────────────────────────────────────
-def render_header():
+def render_header(viewing_date_key: str):
     role = st.session_state.get("role", "viewer")
     role_label = "অ্যাডমিন" if role == "admin" else "ভিউয়ার"
     role_class = "role-admin" if role == "admin" else "role-viewer"
@@ -259,84 +371,154 @@ def render_header():
     <div class="app-header">
         <div class="brand">ঢাকার <span>মিল্কী</span> আইস বার</div>
         <div>
-            <span class="date-badge">📅 {formatted_date()}</span>
+            <span class="date-badge">📅 {viewing_date_key}</span>
             <span class="role-badge {role_class}">{'🔑' if role=='admin' else '👁️'} {role_label}</span>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
-# ─────────────────────────────────────────────
-#  SUMMARY BAR
-# ─────────────────────────────────────────────
-def render_summary(data):
-    total_sales   = sum(s["amount"] for s in data["sales"])
-    total_expense = sum(e["amount"] for e in data["expenses"])
-    profit        = total_sales - total_expense
-
-    profit_class = "c-gold" if profit > 0 else ("c-red" if profit < 0 else "c-muted")
-    profit_sign  = "" if profit >= 0 else "- "
-    profit_label = "লাভ" if profit >= 0 else "ক্ষতি"
-
-    st.markdown(f"""
-    <div class="sum-row">
-        <div class="sum-card">
-            <div class="lbl">মোট বিক্রি</div>
-            <div class="val c-green">৳ {total_sales:,.0f}</div>
-        </div>
-        <div class="sum-card">
-            <div class="lbl">মোট খরচ</div>
-            <div class="val c-red">৳ {total_expense:,.0f}</div>
-        </div>
-        <div class="sum-card">
-            <div class="lbl">{profit_label}</div>
-            <div class="val {profit_class}">{profit_sign}৳ {abs(profit):,.0f}</div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────
-#  SHARED ROW STYLES
+#  DATE NAVIGATION
 # ─────────────────────────────────────────────
-ROW_HEADER_CSS = """
-<style>
-.row-header {
-    display: flex; align-items: center;
-    background: #161b22;
-    border-bottom: 1px solid #2a3548;
-    padding: 7px 4px;
-    font-size: 11px;
-    letter-spacing: 1.5px;
-    text-transform: uppercase;
-    color: #8b949e;
-    font-weight: 600;
-    border-radius: 8px 8px 0 0;
-}
-.row-item {
-    display: flex; align-items: center;
-    padding: 8px 4px;
-    border-bottom: 1px solid rgba(42,53,72,0.4);
-    font-size: 14px;
-}
-.row-item:hover { background: rgba(255,255,255,0.02); border-radius: 4px; }
-.col-num  { width: 32px; color: #8b949e; font-size: 12px; flex-shrink:0; }
-.col-name { flex: 1; font-weight: 500; }
-.col-amt-s { width: 110px; text-align:right; color: #3dffa0; font-weight:700; flex-shrink:0; padding-right:8px; }
-.col-amt-e { width: 110px; text-align:right; color: #ff5e7a; font-weight:700; flex-shrink:0; padding-right:8px; }
-</style>
-"""
+def render_date_nav(data):
+    today_key = get_today_key()
+    if "viewing_date" not in st.session_state:
+        st.session_state["viewing_date"] = today_key
+
+    cur = st.session_state["viewing_date"]
+    is_today = (cur == today_key)
+
+    col_prev, col_mid, col_next, col_today = st.columns([1, 3, 1, 1])
+
+    with col_prev:
+        if st.button("◀ আগের দিন", use_container_width=True, key="nav_prev"):
+            st.session_state["viewing_date"] = prev_date_key(cur)
+            st.rerun()
+
+    with col_mid:
+        today_badge = '<span class="today-tag">আজকের দিন</span>' if is_today else ""
+        st.markdown(f"""
+        <div class="date-nav">
+            <span class="cur-date">📅 {cur}</span>
+            {today_badge}
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col_next:
+        # Disable going beyond today
+        if not is_today:
+            if st.button("পরের দিন ▶", use_container_width=True, key="nav_next"):
+                nxt = next_date_key(cur)
+                if key_to_date(nxt) <= datetime.today():
+                    st.session_state["viewing_date"] = nxt
+                st.rerun()
+
+    with col_today:
+        if not is_today:
+            if st.button("🏠 আজকে", use_container_width=True, key="nav_today"):
+                st.session_state["viewing_date"] = today_key
+                st.rerun()
+
+    return st.session_state["viewing_date"]
+
+
+# ─────────────────────────────────────────────
+#  SUMMARY BAR  (with carry forward)
+# ─────────────────────────────────────────────
+def render_summary(data, date_key: str):
+    day = get_day_data(data, date_key)
+    total_sales   = sum(s["amount"] for s in day["sales"])
+    total_expense = sum(e["amount"] for e in day["expenses"])
+    today_net     = total_sales - total_expense
+    carry_fwd     = get_carry_forward(data, date_key)
+    grand_total   = carry_fwd + today_net
+
+    profit_class = "c-gold" if today_net >= 0 else "c-red"
+    profit_label = "আজকের লাভ" if today_net >= 0 else "আজকের ক্ষতি"
+    profit_sign  = "" if today_net >= 0 else "-"
+
+    grand_class = "c-green" if grand_total >= 0 else "c-red"
+    grand_label = "সর্বমোট লাভ" if grand_total >= 0 else "সর্বমোট ক্ষতি"
+    grand_sign  = "" if grand_total >= 0 else "-"
+
+    cf_sign  = "" if carry_fwd >= 0 else "-"
+    cf_color = "c-purple" if carry_fwd >= 0 else "c-red"
+
+    # Only show carry forward card if there's history before this date
+    sorted_keys = get_sorted_date_keys(data)
+    has_history = any(key_to_date(k) < key_to_date(date_key) for k in sorted_keys)
+
+    if has_history:
+        st.markdown(f"""
+        <div class="sum-row">
+            <div class="sum-card">
+                <div class="lbl">মোট বিক্রি</div>
+                <div class="val c-green">৳ {total_sales:,.0f}</div>
+            </div>
+            <div class="sum-card">
+                <div class="lbl">মোট খরচ</div>
+                <div class="val c-red">৳ {total_expense:,.0f}</div>
+            </div>
+            <div class="sum-card">
+                <div class="lbl">{profit_label}</div>
+                <div class="val {profit_class}">{profit_sign}৳ {abs(today_net):,.0f}</div>
+            </div>
+            <div class="cf-card">
+                <div class="lbl">🔄 ক্যারি ফরওয়ার্ড</div>
+                <div class="val {cf_color}">{cf_sign}৳ {abs(carry_fwd):,.0f}</div>
+            </div>
+            <div class="sum-card">
+                <div class="lbl">🏆 {grand_label}</div>
+                <div class="val {grand_class}">{grand_sign}৳ {abs(grand_total):,.0f}</div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        # No history → simpler 3-card view (same as before)
+        profit_class2 = "c-gold" if today_net >= 0 else "c-red"
+        lbl2 = "লাভ" if today_net >= 0 else "ক্ষতি"
+        sgn2 = "" if today_net >= 0 else "-"
+        st.markdown(f"""
+        <div class="sum-row">
+            <div class="sum-card">
+                <div class="lbl">মোট বিক্রি</div>
+                <div class="val c-green">৳ {total_sales:,.0f}</div>
+            </div>
+            <div class="sum-card">
+                <div class="lbl">মোট খরচ</div>
+                <div class="val c-red">৳ {total_expense:,.0f}</div>
+            </div>
+            <div class="sum-card">
+                <div class="lbl">{lbl2}</div>
+                <div class="val {profit_class2}">{sgn2}৳ {abs(today_net):,.0f}</div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
 
 # ─────────────────────────────────────────────
 #  SALES TABLE
 # ─────────────────────────────────────────────
-def render_sales_table(data, is_admin):
+ROW_HEADER_CSS = """<style>
+.row-header { display:flex;align-items:center;background:#161b22;border-bottom:1px solid #2a3548;padding:7px 4px;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:#8b949e;font-weight:600;border-radius:8px 8px 0 0; }
+.row-item { display:flex;align-items:center;padding:8px 4px;border-bottom:1px solid rgba(42,53,72,0.4);font-size:14px; }
+.row-item:hover { background:rgba(255,255,255,0.02);border-radius:4px; }
+.col-num{width:32px;color:#8b949e;font-size:12px;flex-shrink:0}
+.col-name{flex:1;font-weight:500}
+.col-amt-s{width:110px;text-align:right;color:#3dffa0;font-weight:700;flex-shrink:0;padding-right:8px}
+.col-amt-e{width:110px;text-align:right;color:#ff5e7a;font-weight:700;flex-shrink:0;padding-right:8px}
+</style>"""
+
+
+def render_sales_table(data, date_key, is_admin):
+    day = get_day_data(data, date_key)
     st.markdown('<p class="sec-title-sales">🟢 বিক্রি</p>', unsafe_allow_html=True)
     st.markdown(ROW_HEADER_CSS, unsafe_allow_html=True)
 
-    rows = data["sales"]
+    rows = day["sales"]
     if rows:
-        # header
-        st.markdown("""
-        <div class="row-header">
+        st.markdown("""<div class="row-header">
             <span class="col-num">#</span>
             <span class="col-name">নাম</span>
             <span class="col-amt-s">টাকা</span>
@@ -347,11 +529,10 @@ def render_sales_table(data, is_admin):
                 col_main, col_btn = st.columns([11, 1])
             else:
                 col_main = st.container()
-                col_btn  = None
+                col_btn = None
 
             with col_main:
-                st.markdown(f"""
-                <div class="row-item">
+                st.markdown(f"""<div class="row-item">
                     <span class="col-num">{i+1}</span>
                     <span class="col-name">{s['name']}</span>
                     <span class="col-amt-s">৳ {s['amount']:,.0f}</span>
@@ -359,27 +540,25 @@ def render_sales_table(data, is_admin):
 
             if is_admin and col_btn:
                 with col_btn:
-                    st.markdown("<div style='margin-top:4px'>", unsafe_allow_html=True)
-                    if st.button("✕", key=f"del_sale_{i}", help=f"মুছুন"):
-                        data["sales"].pop(i)
+                    if st.button("✕", key=f"del_sale_{date_key}_{i}"):
+                        day["sales"].pop(i)
                         save_data(data)
                         st.rerun()
-                    st.markdown("</div>", unsafe_allow_html=True)
     else:
         st.markdown('<p class="empty-msg">কোনো বিক্রি যোগ হয়নি</p>', unsafe_allow_html=True)
+
 
 # ─────────────────────────────────────────────
 #  EXPENSE TABLE
 # ─────────────────────────────────────────────
-def render_expense_table(data, is_admin):
+def render_expense_table(data, date_key, is_admin):
+    day = get_day_data(data, date_key)
     st.markdown('<p class="sec-title-expense">🔴 খরচ</p>', unsafe_allow_html=True)
     st.markdown(ROW_HEADER_CSS, unsafe_allow_html=True)
 
-    rows = data["expenses"]
+    rows = day["expenses"]
     if rows:
-        # header
-        st.markdown("""
-        <div class="row-header">
+        st.markdown("""<div class="row-header">
             <span class="col-num">#</span>
             <span class="col-name">বিবরণ</span>
             <span class="col-amt-e">টাকা</span>
@@ -390,11 +569,10 @@ def render_expense_table(data, is_admin):
                 col_main, col_btn = st.columns([11, 1])
             else:
                 col_main = st.container()
-                col_btn  = None
+                col_btn = None
 
             with col_main:
-                st.markdown(f"""
-                <div class="row-item">
+                st.markdown(f"""<div class="row-item">
                     <span class="col-num">{i+1}</span>
                     <span class="col-name">{e['desc']}</span>
                     <span class="col-amt-e">৳ {e['amount']:,.0f}</span>
@@ -402,21 +580,20 @@ def render_expense_table(data, is_admin):
 
             if is_admin and col_btn:
                 with col_btn:
-                    st.markdown("<div style='margin-top:4px'>", unsafe_allow_html=True)
-                    if st.button("✕", key=f"del_exp_{i}", help=f"মুছুন"):
-                        data["expenses"].pop(i)
+                    if st.button("✕", key=f"del_exp_{date_key}_{i}"):
+                        day["expenses"].pop(i)
                         save_data(data)
                         st.rerun()
-                    st.markdown("</div>", unsafe_allow_html=True)
     else:
         st.markdown('<p class="empty-msg">কোনো খরচ যোগ হয়নি</p>', unsafe_allow_html=True)
 
+
 # ─────────────────────────────────────────────
-#  BANGLA ↔ ENGLISH NUMBER CONVERTER
+#  BANGLA ↔ ENGLISH NUMBER
 # ─────────────────────────────────────────────
 def bn_to_en(text: str) -> str:
-    mapping = str.maketrans("০১২৩৪৫৬৭৮৯", "0123456789")
-    return text.translate(mapping)
+    return text.translate(str.maketrans("০১২৩৪৫৬৭৮৯", "0123456789"))
+
 
 def parse_amount(raw: str) -> Optional[float]:
     cleaned = bn_to_en(raw.strip().replace(",", "").replace("৳", "").replace(" ", ""))
@@ -426,10 +603,22 @@ def parse_amount(raw: str) -> Optional[float]:
     except ValueError:
         return None
 
+
 # ─────────────────────────────────────────────
 #  ADMIN INPUT FORMS
 # ─────────────────────────────────────────────
-def render_admin_inputs(data):
+def render_admin_inputs(data, date_key):
+    today_key = get_today_key()
+    # Only allow adding entries for today
+    if date_key != today_key:
+        st.markdown("""
+        <div style="background:rgba(247,201,72,0.08);border:1px solid rgba(247,201,72,0.25);
+        border-radius:10px;padding:12px 18px;color:#f7c948;font-size:13px;text-align:center;margin-top:12px;">
+        ⚠️ পুরনো তারিখে নতুন এন্ট্রি যোগ করা যাবে না। আজকের তারিখে ফিরে যান।
+        </div>
+        """, unsafe_allow_html=True)
+        return
+
     st.markdown("---")
     st.markdown(
         "<p style='font-size:12px;color:#8b949e;margin-bottom:4px'>"
@@ -438,7 +627,6 @@ def render_admin_inputs(data):
         unsafe_allow_html=True,
     )
 
-    # ── counter trick: incrementing key forces widget to re-mount (clears value) ──
     if "sale_counter" not in st.session_state:
         st.session_state["sale_counter"] = 0
     if "exp_counter" not in st.session_state:
@@ -452,10 +640,8 @@ def render_admin_inputs(data):
     # ── SALES ──
     with col_s:
         st.markdown("#### ➕ নতুন বিক্রি যোগ করুন")
-        sale_name       = st.text_input("নাম", placeholder="যেমন: আইস বার, কুলফি...",
-                                        key=f"sale_name_{sc}")
-        sale_amount_raw = st.text_input("টাকা", placeholder="যেমন: ৫০০ বা 500",
-                                        key=f"sale_amt_{sc}")
+        sale_name = st.text_input("নাম", placeholder="যেমন: আইস বার, কুলফি...", key=f"sale_name_{sc}")
+        sale_amount_raw = st.text_input("টাকা", placeholder="যেমন: ৫০০ বা 500", key=f"sale_amt_{sc}")
 
         parsed_sale = parse_amount(sale_amount_raw) if sale_amount_raw.strip() else None
         if sale_amount_raw.strip() and parsed_sale is None:
@@ -465,9 +651,10 @@ def render_admin_inputs(data):
 
         if st.button("✅  বিক্রি যোগ করুন", use_container_width=True, key="add_sale_btn"):
             if sale_name.strip() and parsed_sale:
-                data["sales"].append({"name": sale_name.strip(), "amount": parsed_sale})
+                day = get_day_data(data, date_key)
+                day["sales"].append({"name": sale_name.strip(), "amount": parsed_sale})
                 save_data(data)
-                st.session_state["sale_counter"] += 1   # re-mounts inputs → clears them
+                st.session_state["sale_counter"] += 1
                 st.rerun()
             else:
                 st.warning("নাম ও সঠিক টাকার পরিমাণ দিন!")
@@ -475,10 +662,8 @@ def render_admin_inputs(data):
     # ── EXPENSES ──
     with col_e:
         st.markdown("#### ➕ নতুন খরচ যোগ করুন")
-        exp_desc       = st.text_input("বিবরণ", placeholder="যেমন: কাঁচামাল, ভাড়া...",
-                                       key=f"exp_desc_{ec}")
-        exp_amount_raw = st.text_input("টাকা", placeholder="যেমন: ২৫০ বা 250",
-                                       key=f"exp_amt_{ec}")
+        exp_desc = st.text_input("বিবরণ", placeholder="যেমন: কাঁচামাল, ভাড়া...", key=f"exp_desc_{ec}")
+        exp_amount_raw = st.text_input("টাকা", placeholder="যেমন: ২৫০ বা 250", key=f"exp_amt_{ec}")
 
         parsed_exp = parse_amount(exp_amount_raw) if exp_amount_raw.strip() else None
         if exp_amount_raw.strip() and parsed_exp is None:
@@ -488,16 +673,17 @@ def render_admin_inputs(data):
 
         if st.button("✅  খরচ যোগ করুন", use_container_width=True, key="add_exp_btn"):
             if exp_desc.strip() and parsed_exp:
-                data["expenses"].append({"desc": exp_desc.strip(), "amount": parsed_exp})
+                day = get_day_data(data, date_key)
+                day["expenses"].append({"desc": exp_desc.strip(), "amount": parsed_exp})
                 save_data(data)
-                st.session_state["exp_counter"] += 1    # re-mounts inputs → clears them
+                st.session_state["exp_counter"] += 1
                 st.rerun()
             else:
                 st.warning("বিবরণ ও সঠিক টাকার পরিমাণ দিন!")
 
 
 # ─────────────────────────────────────────────
-#  PASSWORD RESET  (admin only)
+#  PASSWORD RESET
 # ─────────────────────────────────────────────
 def render_password_reset():
     st.markdown("---")
@@ -509,13 +695,11 @@ def render_password_reset():
 
     col_a, col_v = st.columns(2)
 
-    # ── Admin password ──
     with col_a:
-        st.markdown("""
-        <div style="background:#1c2230;border:1px solid #2a3548;border-radius:12px;padding:16px 18px;margin-bottom:4px">
-        <p style="color:#00c6ff;font-weight:700;margin-bottom:12px;font-size:14px">🔑 অ্যাডমিন পাসওয়ার্ড</p>
-        """, unsafe_allow_html=True)
-        new_admin_pw  = st.text_input("নতুন পাসওয়ার্ড",  type="password", key=f"new_admin_pw_{pc}",  placeholder="নতুন পাসওয়ার্ড লিখুন")
+        st.markdown("""<div style="background:#1c2230;border:1px solid #2a3548;border-radius:12px;padding:16px 18px;">
+        <p style="color:#00c6ff;font-weight:700;margin-bottom:12px;font-size:14px">🔑 অ্যাডমিন পাসওয়ার্ড</p>""",
+                    unsafe_allow_html=True)
+        new_admin_pw = st.text_input("নতুন পাসওয়ার্ড", type="password", key=f"new_admin_pw_{pc}", placeholder="নতুন পাসওয়ার্ড লিখুন")
         conf_admin_pw = st.text_input("নিশ্চিত করুন", type="password", key=f"conf_admin_pw_{pc}", placeholder="আবার লিখুন")
         if st.button("✅ অ্যাডমিন পাসওয়ার্ড সেট করুন", use_container_width=True, key="save_admin_pw"):
             if not new_admin_pw:
@@ -530,13 +714,11 @@ def render_password_reset():
                 st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # ── Viewer password ──
     with col_v:
-        st.markdown("""
-        <div style="background:#1c2230;border:1px solid #2a3548;border-radius:12px;padding:16px 18px;margin-bottom:4px">
-        <p style="color:#f7c948;font-weight:700;margin-bottom:12px;font-size:14px">👁️ ভিউয়ার পাসওয়ার্ড</p>
-        """, unsafe_allow_html=True)
-        new_view_pw  = st.text_input("নতুন পাসওয়ার্ড",  type="password", key=f"new_view_pw_{pc}",  placeholder="নতুন পাসওয়ার্ড লিখুন")
+        st.markdown("""<div style="background:#1c2230;border:1px solid #2a3548;border-radius:12px;padding:16px 18px;">
+        <p style="color:#f7c948;font-weight:700;margin-bottom:12px;font-size:14px">👁️ ভিউয়ার পাসওয়ার্ড</p>""",
+                    unsafe_allow_html=True)
+        new_view_pw = st.text_input("নতুন পাসওয়ার্ড", type="password", key=f"new_view_pw_{pc}", placeholder="নতুন পাসওয়ার্ড লিখুন")
         conf_view_pw = st.text_input("নিশ্চিত করুন", type="password", key=f"conf_view_pw_{pc}", placeholder="আবার লিখুন")
         if st.button("✅ ভিউয়ার পাসওয়ার্ড সেট করুন", use_container_width=True, key="save_view_pw"):
             if not new_view_pw:
@@ -544,85 +726,76 @@ def render_password_reset():
             elif new_view_pw != conf_view_pw:
                 st.error("পাসওয়ার্ড দুটো মিলছে না!")
             else:
-                USERS["viewer"]["password"] = new_view_pw
+                USERS["milky"]["password"] = new_view_pw
                 save_passwords()
                 st.session_state["pw_counter"] += 1
                 st.success("✅ ভিউয়ার পাসওয়ার্ড পরিবর্তন হয়েছে!")
                 st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
 
+
 # ─────────────────────────────────────────────
 #  MAIN APP
 # ─────────────────────────────────────────────
 def main():
     inject_css()
-
-    # ── Load saved passwords on every run ──
     load_passwords()
 
-    # ── Session defaults ──
     if "logged_in" not in st.session_state:
         st.session_state.logged_in = False
 
-    # ── Not logged in → show login ──
     if not st.session_state.logged_in:
         login_page()
         return
 
-    # ── Logged in ──
-    data     = load_data()
+    data = load_data()
     is_admin = st.session_state.role == "admin"
 
-    # Hide "Manage app" toolbar for viewer
     if not is_admin:
-        st.markdown("""
-        <style>
-        [data-testid="stToolbar"],
-        [data-testid="manage-app-button"],
-        div[class*="StatusWidget"],
-        div[class*="viewerBadge"],
-        .stDeployButton,
-        #stDecoration,
-        header[data-testid="stHeader"] { display: none !important; visibility: hidden !important; }
-        </style>
-        """, unsafe_allow_html=True)
+        st.markdown("""<style>
+        [data-testid="stToolbar"],[data-testid="manage-app-button"],
+        div[class*="StatusWidget"],div[class*="viewerBadge"],
+        .stDeployButton,#stDecoration,header[data-testid="stHeader"]
+        { display:none !important; visibility:hidden !important; }
+        </style>""", unsafe_allow_html=True)
 
-    # Header
-    render_header()
+    # ── Date navigation (renders before header so we know which date) ──
+    date_key = render_date_nav(data)
 
-    # Logout button (top right) — admin only
+    # ── Header ──
+    render_header(date_key)
+
+    # ── Logout ──
     if is_admin:
         _, _, logout_col = st.columns([6, 1, 1])
         with logout_col:
             if st.button("🚪 লগআউট"):
-                for k in ["logged_in", "username", "role"]:
+                for k in ["logged_in", "username", "role", "viewing_date"]:
                     st.session_state.pop(k, None)
                 st.rerun()
     else:
-        # viewer logout — subtle link at bottom right
         _, _, logout_col = st.columns([8, 1, 1])
         with logout_col:
             if st.button("🚪 বের হন", key="viewer_logout"):
-                for k in ["logged_in", "username", "role"]:
+                for k in ["logged_in", "username", "role", "viewing_date"]:
                     st.session_state.pop(k, None)
                 st.rerun()
 
-    # Summary
-    render_summary(data)
+    # ── Summary (with carry forward) ──
+    render_summary(data, date_key)
 
-    # Two-column layout
+    # ── Tables ──
     col_left, col_right = st.columns(2)
-
     with col_left:
-        render_sales_table(data, is_admin)
-
+        render_sales_table(data, date_key, is_admin)
     with col_right:
-        render_expense_table(data, is_admin)
+        render_expense_table(data, date_key, is_admin)
 
-    # Admin input forms
+    # ── Admin forms ──
     if is_admin:
-        render_admin_inputs(data)
+        render_admin_inputs(data, date_key)
         render_password_reset()
+
 
 if __name__ == "__main__":
     main()
