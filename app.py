@@ -53,16 +53,17 @@ def load_data():
       }
     }
     Also supports legacy flat format for backward compatibility.
+    On migration, data is placed under yesterday (previous day) automatically.
     """
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE, "r", encoding="utf-8") as f:
             raw = json.load(f)
-        # ── Migrate old flat format ──
+        # ── Migrate old flat format → place under yesterday ──
         if "sales" in raw or "expenses" in raw:
-            today = get_today_key()
+            yesterday = date_to_key(datetime.today() - timedelta(days=1))
             migrated = {
                 "dates": {
-                    today: {
+                    yesterday: {
                         "sales": raw.get("sales", []),
                         "expenses": raw.get("expenses", []),
                     }
@@ -70,6 +71,8 @@ def load_data():
             }
             save_data_raw(migrated)
             return migrated
+        # ── Fix: if today's key has data that belongs to yesterday ──
+        # (one-time correction stored as flag)
         return raw
     return {"dates": {}}
 
@@ -683,6 +686,43 @@ def render_admin_inputs(data, date_key):
 
 
 # ─────────────────────────────────────────────
+#  ONE-TIME DATE FIX  (admin only)
+# ─────────────────────────────────────────────
+def render_date_fix(data):
+    today_key = get_today_key()
+    yesterday_key = date_to_key(datetime.today() - timedelta(days=1))
+
+    today_data = data["dates"].get(today_key, {"sales": [], "expenses": []})
+    yesterday_data = data["dates"].get(yesterday_key, {"sales": [], "expenses": []})
+
+    today_has_data = bool(today_data.get("sales") or today_data.get("expenses"))
+    yesterday_has_data = bool(yesterday_data.get("sales") or yesterday_data.get("expenses"))
+
+    # Only show if today has data but yesterday doesn't (wrong migration)
+    if not (today_has_data and not yesterday_has_data):
+        return
+
+    st.markdown("---")
+    st.markdown(f"""
+    <div style="background:rgba(255,94,122,0.08);border:1px solid rgba(255,94,122,0.3);
+    border-radius:12px;padding:16px 20px;margin-bottom:8px;">
+    <p style="color:#ff5e7a;font-weight:700;font-size:15px;margin-bottom:6px">⚠️ তারিখ সংশোধন দরকার</p>
+    <p style="color:#e6edf3;font-size:13px;margin-bottom:0">
+    আজকের ({today_key}) তারিখে ডেটা আছে কিন্তু এটা আসলে গতকালের ({yesterday_key}) ডেটা।
+    নিচের বাটন ক্লিক করলে সব ডেটা <b>{yesterday_key}</b> তারিখে সরিয়ে দেওয়া হবে।
+    </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if st.button(f"🔄 ডেটা {yesterday_key} তারিখে সরাও", key="fix_date_btn"):
+        data["dates"][yesterday_key] = data["dates"].pop(today_key)
+        save_data(data)
+        st.session_state["viewing_date"] = yesterday_key
+        st.success(f"✅ সব ডেটা {yesterday_key} তারিখে সরানো হয়েছে!")
+        st.rerun()
+
+
+# ─────────────────────────────────────────────
 #  PASSWORD RESET
 # ─────────────────────────────────────────────
 def render_password_reset():
@@ -793,6 +833,7 @@ def main():
 
     # ── Admin forms ──
     if is_admin:
+        render_date_fix(data)
         render_admin_inputs(data, date_key)
         render_password_reset()
 
