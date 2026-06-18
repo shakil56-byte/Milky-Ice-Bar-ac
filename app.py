@@ -1,6 +1,11 @@
 import streamlit as st
 import json
 import os
+import time
+import hashlib
+import hmac
+import re
+import base64
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -15,6 +20,17 @@ st.set_page_config(
 )
 
 # ─────────────────────────────────────────────
+#  SECURITY CONSTANTS
+# ─────────────────────────────────────────────
+MAX_LOGIN_ATTEMPTS   = 5       # lockout after N failures
+LOCKOUT_SECONDS      = 300     # 5-minute lockout
+MAX_NAME_LEN         = 100     # max chars for item names / descriptions
+MAX_AMOUNT           = 10_000_000  # ৳1 crore ceiling per entry
+SECRET_KEY           = os.environ.get("APP_SECRET", "milky-icebar-secret-2026")
+
+LOGO_FILE = "logo.png"
+
+# ─────────────────────────────────────────────
 #  USERS
 # ─────────────────────────────────────────────
 USERS = {
@@ -23,19 +39,35 @@ USERS = {
 }
 
 # ─────────────────────────────────────────────
-#  DATA FILE
+#  DATA / PASSWORD FILES
 # ─────────────────────────────────────────────
 DATA_FILE = "data.json"
 PASS_FILE = "passwords.json"
+
+
+# ── Secure password hashing ──────────────────
+def _hash_pw(password: str) -> str:
+    """HMAC-SHA256 hash so raw passwords are never stored on disk."""
+    return hmac.new(SECRET_KEY.encode(), password.encode(), hashlib.sha256).hexdigest()
+
+
+def _verify_pw(password: str, stored: str) -> bool:
+    """Constant-time comparison to prevent timing attacks."""
+    return hmac.compare_digest(_hash_pw(password), stored)
 
 
 def load_passwords():
     if os.path.exists(PASS_FILE):
         with open(PASS_FILE, "r", encoding="utf-8") as f:
             saved = json.load(f)
-        for uname, pwd in saved.items():
+        for uname, hashed in saved.items():
             if uname in USERS:
-                USERS[uname]["password"] = pwd
+                USERS[uname]["password"] = hashed   # already hashed on disk
+    else:
+        # First run: hash the default passwords and save
+        for u in USERS:
+            USERS[u]["password"] = _hash_pw(USERS[u]["password"])
+        save_passwords()
 
 
 def save_passwords():
@@ -43,22 +75,70 @@ def save_passwords():
         json.dump({u: USERS[u]["password"] for u in USERS}, f, ensure_ascii=False)
 
 
+def set_password(username: str, new_plain: str):
+    """Hash a new plain-text password and persist it."""
+    USERS[username]["password"] = _hash_pw(new_plain)
+    save_passwords()
+
+
+# ─────────────────────────────────────────────
+#  BRUTE-FORCE PROTECTION
+# ─────────────────────────────────────────────
+def _bf_key(username: str) -> str:
+    return f"bf_{username}"
+
+
+def check_login_allowed(username: str) -> tuple[bool, int]:
+    """Returns (allowed, seconds_remaining)."""
+    key = _bf_key(username)
+    info = st.session_state.get(key, {"attempts": 0, "locked_until": 0})
+    now = time.time()
+    if info["locked_until"] > now:
+        remaining = int(info["locked_until"] - now)
+        return False, remaining
+    return True, 0
+
+
+def record_failed_login(username: str):
+    key = _bf_key(username)
+    info = st.session_state.get(key, {"attempts": 0, "locked_until": 0})
+    info["attempts"] += 1
+    if info["attempts"] >= MAX_LOGIN_ATTEMPTS:
+        info["locked_until"] = time.time() + LOCKOUT_SECONDS
+        info["attempts"] = 0
+    st.session_state[key] = info
+
+
+def record_success_login(username: str):
+    st.session_state.pop(_bf_key(username), None)
+
+
+# ─────────────────────────────────────────────
+#  INPUT SANITISATION
+# ─────────────────────────────────────────────
+_ALLOWED_TEXT_RE = re.compile(r"[^\w\s\u0980-\u09FF,.\-/()+]")
+
+def sanitize_text(text: str) -> str:
+    """Strip HTML/script tags and dangerous characters."""
+    # Remove any HTML tags
+    text = re.sub(r"<[^>]*>", "", text)
+    # Remove characters outside safe set (Bengali + ASCII word chars + common punctuation)
+    text = _ALLOWED_TEXT_RE.sub("", text)
+    return text[:MAX_NAME_LEN].strip()
+
+
+def validate_amount(value: float) -> bool:
+    return 0 < value <= MAX_AMOUNT
+
+
+# ─────────────────────────────────────────────
+#  DATA FILE
+# ─────────────────────────────────────────────
 def load_data():
-    """
-    New structure:
-    {
-      "dates": {
-        "9/Jun/2026": {"sales": [...], "expenses": [...]},
-        ...
-      }
-    }
-    Also supports legacy flat format for backward compatibility.
-    On migration, data is placed under yesterday (previous day) automatically.
-    """
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE, "r", encoding="utf-8") as f:
             raw = json.load(f)
-        # ── Migrate old flat format → place under yesterday ──
+        # Migrate old flat format → place under yesterday
         if "sales" in raw or "expenses" in raw:
             yesterday = date_to_key(datetime.today() - timedelta(days=1))
             migrated = {
@@ -71,8 +151,6 @@ def load_data():
             }
             save_data_raw(migrated)
             return migrated
-        # ── Fix: if today's key has data that belongs to yesterday ──
-        # (one-time correction stored as flag)
         return raw
     return {"dates": {}}
 
@@ -87,7 +165,6 @@ def save_data(data):
 
 
 def get_day_data(data, date_key):
-    """Return sales/expenses for a specific date, creating if needed."""
     if date_key not in data["dates"]:
         data["dates"][date_key] = {"sales": [], "expenses": []}
     return data["dates"][date_key]
@@ -110,33 +187,26 @@ def get_today_key() -> str:
 
 def key_to_date(key: str) -> datetime:
     parts = key.split("/")
-    day = int(parts[0])
+    day   = int(parts[0])
     month = MONTHS.index(parts[1]) + 1
-    year = int(parts[2])
+    year  = int(parts[2])
     return datetime(year, month, day)
 
 
 def prev_date_key(key: str) -> str:
-    d = key_to_date(key)
-    return date_to_key(d - timedelta(days=1))
+    return date_to_key(key_to_date(key) - timedelta(days=1))
 
 
 def next_date_key(key: str) -> str:
-    d = key_to_date(key)
-    return date_to_key(d + timedelta(days=1))
+    return date_to_key(key_to_date(key) + timedelta(days=1))
 
 
 def get_sorted_date_keys(data) -> list:
-    """All date keys sorted oldest → newest."""
     keys = list(data["dates"].keys())
     return sorted(keys, key=lambda k: key_to_date(k))
 
 
 def get_carry_forward(data, date_key: str) -> float:
-    """
-    Sum all net profit/loss from every date BEFORE date_key.
-    Only dates that actually have data count.
-    """
     total = 0.0
     for k in get_sorted_date_keys(data):
         if key_to_date(k) >= key_to_date(date_key):
@@ -146,6 +216,73 @@ def get_carry_forward(data, date_key: str) -> float:
         e = sum(x["amount"] for x in day.get("expenses", []))
         total += (s - e)
     return total
+
+
+def parse_manual_date(text: str) -> Optional[str]:
+    """
+    Accept several formats and return a valid date_key or None.
+    Accepted: DD/MM/YYYY  DD-MM-YYYY  YYYY-MM-DD  DD Mon YYYY  DD/Mon/YYYY
+    Also accepts Bengali digits.
+    """
+    text = bn_to_en(text.strip())
+    today = datetime.today()
+
+    patterns = [
+        (r"^(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})$",   "dmy"),
+        (r"^(\d{4})[/\-](\d{1,2})[/\-](\d{1,2})$",    "ymd"),
+        (r"^(\d{1,2})[/\-]([A-Za-z]{3})[/\-](\d{4})$","dMonY"),
+        (r"^(\d{1,2})\s+([A-Za-z]{3,9})\s+(\d{4})$",  "dMonY"),
+    ]
+
+    dt = None
+    for pat, fmt in patterns:
+        m = re.match(pat, text, re.IGNORECASE)
+        if not m:
+            continue
+        try:
+            if fmt == "dmy":
+                dt = datetime(int(m.group(3)), int(m.group(2)), int(m.group(1)))
+            elif fmt == "ymd":
+                dt = datetime(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+            elif fmt == "dMonY":
+                mon_str = m.group(2)[:3].capitalize()
+                if mon_str not in MONTHS:
+                    continue
+                dt = datetime(int(m.group(3)), MONTHS.index(mon_str) + 1, int(m.group(1)))
+        except ValueError:
+            continue
+        break
+
+    if dt is None:
+        return None
+    if dt > today:
+        return None           # no future dates
+    return date_to_key(dt)
+
+
+# ─────────────────────────────────────────────
+#  LOGO HELPERS
+# ─────────────────────────────────────────────
+def load_logo_b64() -> Optional[str]:
+    if os.path.exists(LOGO_FILE):
+        with open(LOGO_FILE, "rb") as f:
+            return base64.b64encode(f.read()).decode()
+    return None
+
+
+def save_logo(uploaded_file):
+    data = uploaded_file.read()
+    # Basic magic-byte check: PNG or JPEG only
+    if data[:4] == b'\x89PNG' or data[:3] == b'\xff\xd8\xff':
+        with open(LOGO_FILE, "wb") as f:
+            f.write(data)
+        return True
+    return False
+
+
+def delete_logo():
+    if os.path.exists(LOGO_FILE):
+        os.remove(LOGO_FILE)
 
 
 # ─────────────────────────────────────────────
@@ -170,6 +307,16 @@ def inject_css():
         background: linear-gradient(180deg, rgba(0,198,255,0.07) 0%, transparent 100%);
         border-bottom: 1px solid #2a3548;
         margin-bottom: 20px;
+    }
+    .app-header .logo-img {
+        width: 72px; height: 72px;
+        object-fit: contain;
+        border-radius: 50%;
+        border: 2px solid rgba(0,198,255,0.4);
+        margin-bottom: 6px;
+        display: block;
+        margin-left: auto;
+        margin-right: auto;
     }
     .app-header .brand {
         font-family: 'Tiro Bangla', serif;
@@ -205,36 +352,22 @@ def inject_css():
     .sec-title-sales   { color: #3dffa0; font-size: 17px; font-weight: 700; letter-spacing:1px; }
     .sec-title-expense { color: #ff5e7a; font-size: 17px; font-weight: 700; letter-spacing:1px; }
 
-    .sum-row {
-        display: flex;
-        gap: 12px;
-        margin-bottom: 18px;
-        flex-wrap: wrap;
-    }
+    .sum-row { display:flex; gap:12px; margin-bottom:18px; flex-wrap:wrap; }
     .sum-card {
-        flex: 1;
-        min-width: 120px;
-        background: #1c2230;
-        border: 1px solid #2a3548;
-        border-radius: 14px;
-        padding: 14px 18px;
-        text-align: center;
+        flex:1; min-width:120px;
+        background:#1c2230; border:1px solid #2a3548; border-radius:14px;
+        padding:14px 18px; text-align:center;
     }
-    .sum-card .lbl { font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; color: #8b949e; }
-    .sum-card .val { font-size: 22px; font-weight: 700; margin-top: 4px; }
-
-    /* Carry forward card — distinct styling */
+    .sum-card .lbl { font-size:11px; letter-spacing:1.5px; text-transform:uppercase; color:#8b949e; }
+    .sum-card .val { font-size:22px; font-weight:700; margin-top:4px; }
     .cf-card {
-        flex: 1;
-        min-width: 120px;
-        background: linear-gradient(135deg, rgba(180,120,255,0.12), rgba(100,80,200,0.08));
-        border: 1px solid rgba(180,120,255,0.35);
-        border-radius: 14px;
-        padding: 14px 18px;
-        text-align: center;
+        flex:1; min-width:120px;
+        background:linear-gradient(135deg,rgba(180,120,255,0.12),rgba(100,80,200,0.08));
+        border:1px solid rgba(180,120,255,0.35); border-radius:14px;
+        padding:14px 18px; text-align:center;
     }
-    .cf-card .lbl { font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; color: #a78bfa; }
-    .cf-card .val { font-size: 22px; font-weight: 700; margin-top: 4px; }
+    .cf-card .lbl { font-size:11px; letter-spacing:1.5px; text-transform:uppercase; color:#a78bfa; }
+    .cf-card .val { font-size:22px; font-weight:700; margin-top:4px; }
 
     .c-green  { color: #3dffa0; }
     .c-red    { color: #ff5e7a; }
@@ -242,93 +375,54 @@ def inject_css():
     .c-purple { color: #c084fc; }
     .c-muted  { color: #8b949e; }
 
-    /* Date nav */
     .date-nav {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 10px;
-        margin-bottom: 18px;
-        background: #1c2230;
-        border: 1px solid #2a3548;
-        border-radius: 14px;
-        padding: 10px 18px;
+        display:flex; align-items:center; justify-content:center;
+        gap:10px; margin-bottom:18px;
+        background:#1c2230; border:1px solid #2a3548;
+        border-radius:14px; padding:10px 18px;
     }
-    .date-nav .cur-date {
-        font-size: 16px;
-        font-weight: 700;
-        color: #f7c948;
-        min-width: 140px;
-        text-align: center;
-    }
+    .date-nav .cur-date { font-size:16px; font-weight:700; color:#f7c948; min-width:140px; text-align:center; }
     .date-nav .today-tag {
-        background: rgba(61,255,160,0.12);
-        border: 1px solid rgba(61,255,160,0.3);
-        color: #3dffa0;
-        font-size: 11px;
-        padding: 2px 8px;
-        border-radius: 10px;
-        font-weight: 600;
+        background:rgba(61,255,160,0.12); border:1px solid rgba(61,255,160,0.3);
+        color:#3dffa0; font-size:11px; padding:2px 8px; border-radius:10px; font-weight:600;
     }
 
-    /* Row styles */
     .row-header {
-        display: flex; align-items: center;
-        background: #161b22;
-        border-bottom: 1px solid #2a3548;
-        padding: 7px 4px;
-        font-size: 11px;
-        letter-spacing: 1.5px;
-        text-transform: uppercase;
-        color: #8b949e;
-        font-weight: 600;
-        border-radius: 8px 8px 0 0;
+        display:flex; align-items:center; background:#161b22;
+        border-bottom:1px solid #2a3548; padding:7px 4px;
+        font-size:11px; letter-spacing:1.5px; text-transform:uppercase;
+        color:#8b949e; font-weight:600; border-radius:8px 8px 0 0;
     }
     .row-item {
-        display: flex; align-items: center;
-        padding: 8px 4px;
-        border-bottom: 1px solid rgba(42,53,72,0.4);
-        font-size: 14px;
+        display:flex; align-items:center;
+        padding:8px 4px; border-bottom:1px solid rgba(42,53,72,0.4); font-size:14px;
     }
-    .row-item:hover { background: rgba(255,255,255,0.02); border-radius: 4px; }
-    .col-num  { width: 32px; color: #8b949e; font-size: 12px; flex-shrink:0; }
-    .col-name { flex: 1; font-weight: 500; }
-    .col-amt-s { width: 110px; text-align:right; color: #3dffa0; font-weight:700; flex-shrink:0; padding-right:8px; }
-    .col-amt-e { width: 110px; text-align:right; color: #ff5e7a; font-weight:700; flex-shrink:0; padding-right:8px; }
+    .row-item:hover { background:rgba(255,255,255,0.02); border-radius:4px; }
+    .col-num  { width:32px; color:#8b949e; font-size:12px; flex-shrink:0; }
+    .col-name { flex:1; font-weight:500; }
+    .col-amt-s { width:110px; text-align:right; color:#3dffa0; font-weight:700; flex-shrink:0; padding-right:8px; }
+    .col-amt-e { width:110px; text-align:right; color:#ff5e7a; font-weight:700; flex-shrink:0; padding-right:8px; }
 
     .login-wrap {
-        max-width: 400px;
-        margin: 80px auto 0;
-        background: #1c2230;
-        border: 1px solid #2a3548;
-        border-radius: 20px;
-        padding: 38px 32px 30px;
-        text-align: center;
+        max-width:400px; margin:80px auto 0;
+        background:#1c2230; border:1px solid #2a3548;
+        border-radius:20px; padding:38px 32px 30px; text-align:center;
     }
-    .login-wrap .login-title {
-        font-family: 'Tiro Bangla', serif;
-        font-size: 22px;
-        color: #d0f0ff;
-        margin-bottom: 6px;
-    }
-    .login-wrap .login-sub { font-size: 13px; color: #8b949e; margin-bottom: 24px; }
+    .login-wrap .login-title { font-family:'Tiro Bangla',serif; font-size:22px; color:#d0f0ff; margin-bottom:6px; }
+    .login-wrap .login-sub   { font-size:13px; color:#8b949e; margin-bottom:24px; }
 
     div[data-testid="stTextInput"] input,
     div[data-testid="stNumberInput"] input {
-        background: #0d1117 !important;
-        color: #e6edf3 !important;
-        border: 1px solid #2a3548 !important;
-        border-radius: 8px !important;
+        background:#0d1117 !important; color:#e6edf3 !important;
+        border:1px solid #2a3548 !important; border-radius:8px !important;
     }
     div[data-testid="stButton"] button {
-        border-radius: 10px !important;
-        font-family: 'Hind Siliguri', sans-serif !important;
-        font-size: 15px !important;
-        font-weight: 600 !important;
+        border-radius:10px !important;
+        font-family:'Hind Siliguri',sans-serif !important;
+        font-size:15px !important; font-weight:600 !important;
     }
-    div[data-testid="stAlert"] { border-radius: 10px !important; }
-
-    .empty-msg { text-align: center; color: #8b949e; font-style: italic; padding: 24px; }
+    div[data-testid="stAlert"] { border-radius:10px !important; }
+    .empty-msg { text-align:center; color:#8b949e; font-style:italic; padding:24px; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -337,9 +431,14 @@ def inject_css():
 #  LOGIN PAGE
 # ─────────────────────────────────────────────
 def login_page():
-    st.markdown("""
+    logo_b64 = load_logo_b64()
+    logo_html = (
+        f'<img class="logo-img" src="data:image/png;base64,{logo_b64}" alt="logo">'
+        if logo_b64 else '<div style="font-size:44px;margin-bottom:6px">🍦</div>'
+    )
+    st.markdown(f"""
     <div class="login-wrap">
-        <div style="font-size:44px;margin-bottom:6px">🍦</div>
+        {logo_html}
         <div class="login-title">ঢাকার মিল্কী আইস বার</div>
         <div class="login-sub">আপনার অ্যাকাউন্টে লগইন করুন</div>
     </div>
@@ -348,30 +447,52 @@ def login_page():
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.markdown("<br>", unsafe_allow_html=True)
-        username = st.text_input("👤 ইউজারনেম", placeholder="username লিখুন")
-        password = st.text_input("🔒 পাসওয়ার্ড", type="password", placeholder="password লিখুন")
+        username = st.text_input("👤 ইউজারনেম", placeholder="username লিখুন", max_chars=30)
+        password = st.text_input("🔒 পাসওয়ার্ড", type="password", placeholder="password লিখুন", max_chars=100)
         st.markdown("<br>", unsafe_allow_html=True)
 
         if st.button("🔑  লগইন করুন", use_container_width=True):
-            if username in USERS and USERS[username]["password"] == password:
-                st.session_state.logged_in = True
-                st.session_state.username = username
-                st.session_state.role = USERS[username]["role"]
+            # Sanitise inputs
+            username = username.strip().lower()
+
+            # Check lockout
+            allowed, remaining = check_login_allowed(username)
+            if not allowed:
+                st.error(f"🔒 অনেকবার ভুল চেষ্টা! {remaining} সেকেন্ড পর আবার চেষ্টা করুন।")
+                return
+
+            if username in USERS and _verify_pw(password, USERS[username]["password"]):
+                record_success_login(username)
+                st.session_state.logged_in  = True
+                st.session_state.username   = username
+                st.session_state.role       = USERS[username]["role"]
                 st.rerun()
             else:
-                st.error("❌ ইউজারনেম বা পাসওয়ার্ড ভুল!")
+                record_failed_login(username)
+                _, remaining2 = check_login_allowed(username)
+                if remaining2 > 0:
+                    st.error(f"❌ অনেকবার ভুল চেষ্টা! {remaining2} সেকেন্ড পর আবার চেষ্টা করুন।")
+                else:
+                    st.error("❌ ইউজারনেম বা পাসওয়ার্ড ভুল!")
 
 
 # ─────────────────────────────────────────────
 #  HEADER
 # ─────────────────────────────────────────────
 def render_header(viewing_date_key: str):
-    role = st.session_state.get("role", "viewer")
-    role_label = "অ্যাডমিন" if role == "admin" else "ভিউয়ার"
-    role_class = "role-admin" if role == "admin" else "role-viewer"
+    role        = st.session_state.get("role", "viewer")
+    role_label  = "অ্যাডমিন" if role == "admin" else "ভিউয়ার"
+    role_class  = "role-admin" if role == "admin" else "role-viewer"
+    logo_b64    = load_logo_b64()
+
+    logo_html = (
+        f'<img class="logo-img" src="data:image/png;base64,{logo_b64}" alt="logo">'
+        if logo_b64 else ""
+    )
 
     st.markdown(f"""
     <div class="app-header">
+        {logo_html}
         <div class="brand">ঢাকার <span>মিল্কী</span> আইস বার</div>
         <div>
             <span class="date-badge">📅 {viewing_date_key}</span>
@@ -382,16 +503,17 @@ def render_header(viewing_date_key: str):
 
 
 # ─────────────────────────────────────────────
-#  DATE NAVIGATION
+#  DATE NAVIGATION  (with manual date input)
 # ─────────────────────────────────────────────
 def render_date_nav(data):
     today_key = get_today_key()
     if "viewing_date" not in st.session_state:
         st.session_state["viewing_date"] = today_key
 
-    cur = st.session_state["viewing_date"]
+    cur      = st.session_state["viewing_date"]
     is_today = (cur == today_key)
 
+    # ── Row 1: prev / display / next / today ─────────────────────────────
     col_prev, col_mid, col_next, col_today = st.columns([1, 3, 1, 1])
 
     with col_prev:
@@ -405,11 +527,9 @@ def render_date_nav(data):
         <div class="date-nav">
             <span class="cur-date">📅 {cur}</span>
             {today_badge}
-        </div>
-        """, unsafe_allow_html=True)
+        </div>""", unsafe_allow_html=True)
 
     with col_next:
-        # Disable going beyond today
         if not is_today:
             if st.button("পরের দিন ▶", use_container_width=True, key="nav_next"):
                 nxt = next_date_key(cur)
@@ -423,14 +543,39 @@ def render_date_nav(data):
                 st.session_state["viewing_date"] = today_key
                 st.rerun()
 
+    # ── Row 2: manual date jump ───────────────────────────────────────────
+    with st.expander("📆 নির্দিষ্ট তারিখে যান", expanded=False):
+        st.markdown(
+            "<p style='font-size:12px;color:#8b949e;margin:0 0 6px'>ফরম্যাট: DD/MM/YYYY বা DD-MM-YYYY বা DD/Jan/2025</p>",
+            unsafe_allow_html=True,
+        )
+        mc1, mc2 = st.columns([3, 1])
+        with mc1:
+            manual_input = st.text_input(
+                "তারিখ লিখুন",
+                placeholder="যেমন: 05/06/2025 বা 5-Jun-2025",
+                label_visibility="collapsed",
+                max_chars=20,
+                key="manual_date_input",
+            )
+        with mc2:
+            if st.button("✅ যান", use_container_width=True, key="manual_date_go"):
+                if manual_input.strip():
+                    parsed = parse_manual_date(manual_input)
+                    if parsed:
+                        st.session_state["viewing_date"] = parsed
+                        st.rerun()
+                    else:
+                        st.error("❌ ভুল ফরম্যাট বা ভবিষ্যতের তারিখ!")
+
     return st.session_state["viewing_date"]
 
 
 # ─────────────────────────────────────────────
-#  SUMMARY BAR  (with carry forward)
+#  SUMMARY BAR
 # ─────────────────────────────────────────────
 def render_summary(data, date_key: str):
-    day = get_day_data(data, date_key)
+    day           = get_day_data(data, date_key)
     total_sales   = sum(s["amount"] for s in day["sales"])
     total_expense = sum(e["amount"] for e in day["expenses"])
     today_net     = total_sales - total_expense
@@ -441,14 +586,12 @@ def render_summary(data, date_key: str):
     profit_label = "আজকের লাভ" if today_net >= 0 else "আজকের ক্ষতি"
     profit_sign  = "" if today_net >= 0 else "-"
 
-    grand_class = "c-green" if grand_total >= 0 else "c-red"
-    grand_label = "সর্বমোট লাভ" if grand_total >= 0 else "সর্বমোট ক্ষতি"
-    grand_sign  = "" if grand_total >= 0 else "-"
+    grand_class  = "c-green" if grand_total >= 0 else "c-red"
+    grand_label  = "সর্বমোট লাভ" if grand_total >= 0 else "সর্বমোট ক্ষতি"
+    grand_sign   = "" if grand_total >= 0 else "-"
+    cf_sign      = "" if carry_fwd >= 0 else "-"
+    cf_color     = "c-purple" if carry_fwd >= 0 else "c-red"
 
-    cf_sign  = "" if carry_fwd >= 0 else "-"
-    cf_color = "c-purple" if carry_fwd >= 0 else "c-red"
-
-    # Only show carry forward card if there's history before this date
     sorted_keys = get_sorted_date_keys(data)
     has_history = any(key_to_date(k) < key_to_date(date_key) for k in sorted_keys)
 
@@ -478,10 +621,9 @@ def render_summary(data, date_key: str):
         </div>
         """, unsafe_allow_html=True)
     else:
-        # No history → simpler 3-card view (same as before)
-        profit_class2 = "c-gold" if today_net >= 0 else "c-red"
         lbl2 = "লাভ" if today_net >= 0 else "ক্ষতি"
         sgn2 = "" if today_net >= 0 else "-"
+        pc2  = "c-gold" if today_net >= 0 else "c-red"
         st.markdown(f"""
         <div class="sum-row">
             <div class="sum-card">
@@ -494,19 +636,19 @@ def render_summary(data, date_key: str):
             </div>
             <div class="sum-card">
                 <div class="lbl">{lbl2}</div>
-                <div class="val {profit_class2}">{sgn2}৳ {abs(today_net):,.0f}</div>
+                <div class="val {pc2}">{sgn2}৳ {abs(today_net):,.0f}</div>
             </div>
         </div>
         """, unsafe_allow_html=True)
 
 
 # ─────────────────────────────────────────────
-#  SALES TABLE
+#  TABLE CSS (inline to avoid redefining)
 # ─────────────────────────────────────────────
 ROW_HEADER_CSS = """<style>
-.row-header { display:flex;align-items:center;background:#161b22;border-bottom:1px solid #2a3548;padding:7px 4px;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:#8b949e;font-weight:600;border-radius:8px 8px 0 0; }
-.row-item { display:flex;align-items:center;padding:8px 4px;border-bottom:1px solid rgba(42,53,72,0.4);font-size:14px; }
-.row-item:hover { background:rgba(255,255,255,0.02);border-radius:4px; }
+.row-header{display:flex;align-items:center;background:#161b22;border-bottom:1px solid #2a3548;padding:7px 4px;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:#8b949e;font-weight:600;border-radius:8px 8px 0 0}
+.row-item{display:flex;align-items:center;padding:8px 4px;border-bottom:1px solid rgba(42,53,72,0.4);font-size:14px}
+.row-item:hover{background:rgba(255,255,255,0.02);border-radius:4px}
 .col-num{width:32px;color:#8b949e;font-size:12px;flex-shrink:0}
 .col-name{flex:1;font-weight:500}
 .col-amt-s{width:110px;text-align:right;color:#3dffa0;font-weight:700;flex-shrink:0;padding-right:8px}
@@ -514,11 +656,13 @@ ROW_HEADER_CSS = """<style>
 </style>"""
 
 
+# ─────────────────────────────────────────────
+#  SALES TABLE
+# ─────────────────────────────────────────────
 def render_sales_table(data, date_key, is_admin):
     day = get_day_data(data, date_key)
     st.markdown('<p class="sec-title-sales">🟢 বিক্রি</p>', unsafe_allow_html=True)
     st.markdown(ROW_HEADER_CSS, unsafe_allow_html=True)
-
     rows = day["sales"]
     if rows:
         st.markdown("""<div class="row-header">
@@ -526,21 +670,17 @@ def render_sales_table(data, date_key, is_admin):
             <span class="col-name">নাম</span>
             <span class="col-amt-s">টাকা</span>
         </div>""", unsafe_allow_html=True)
-
         for i, s in enumerate(rows):
             if is_admin:
                 col_main, col_btn = st.columns([11, 1])
             else:
-                col_main = st.container()
-                col_btn = None
-
+                col_main = st.container(); col_btn = None
             with col_main:
                 st.markdown(f"""<div class="row-item">
                     <span class="col-num">{i+1}</span>
                     <span class="col-name">{s['name']}</span>
                     <span class="col-amt-s">৳ {s['amount']:,.0f}</span>
                 </div>""", unsafe_allow_html=True)
-
             if is_admin and col_btn:
                 with col_btn:
                     if st.button("✕", key=f"del_sale_{date_key}_{i}"):
@@ -558,7 +698,6 @@ def render_expense_table(data, date_key, is_admin):
     day = get_day_data(data, date_key)
     st.markdown('<p class="sec-title-expense">🔴 খরচ</p>', unsafe_allow_html=True)
     st.markdown(ROW_HEADER_CSS, unsafe_allow_html=True)
-
     rows = day["expenses"]
     if rows:
         st.markdown("""<div class="row-header">
@@ -566,21 +705,17 @@ def render_expense_table(data, date_key, is_admin):
             <span class="col-name">বিবরণ</span>
             <span class="col-amt-e">টাকা</span>
         </div>""", unsafe_allow_html=True)
-
         for i, e in enumerate(rows):
             if is_admin:
                 col_main, col_btn = st.columns([11, 1])
             else:
-                col_main = st.container()
-                col_btn = None
-
+                col_main = st.container(); col_btn = None
             with col_main:
                 st.markdown(f"""<div class="row-item">
                     <span class="col-num">{i+1}</span>
                     <span class="col-name">{e['desc']}</span>
                     <span class="col-amt-e">৳ {e['amount']:,.0f}</span>
                 </div>""", unsafe_allow_html=True)
-
             if is_admin and col_btn:
                 with col_btn:
                     if st.button("✕", key=f"del_exp_{date_key}_{i}"):
@@ -602,7 +737,9 @@ def parse_amount(raw: str) -> Optional[float]:
     cleaned = bn_to_en(raw.strip().replace(",", "").replace("৳", "").replace(" ", ""))
     try:
         val = float(cleaned)
-        return val if val > 0 else None
+        if val > 0 and validate_amount(val):
+            return val
+        return None
     except ValueError:
         return None
 
@@ -612,7 +749,6 @@ def parse_amount(raw: str) -> Optional[float]:
 # ─────────────────────────────────────────────
 def render_admin_inputs(data, date_key):
     today_key = get_today_key()
-    # Only allow adding entries for today
     if date_key != today_key:
         st.markdown("""
         <div style="background:rgba(247,201,72,0.08);border:1px solid rgba(247,201,72,0.25);
@@ -626,58 +762,55 @@ def render_admin_inputs(data, date_key):
     st.markdown(
         "<p style='font-size:12px;color:#8b949e;margin-bottom:4px'>"
         "💡 টাকার ঘরে বাংলা (যেমন: ৫০০) বা ইংরেজি (500) দুটোই লেখা যাবে।"
-        "</p>",
-        unsafe_allow_html=True,
+        "</p>", unsafe_allow_html=True,
     )
 
-    if "sale_counter" not in st.session_state:
-        st.session_state["sale_counter"] = 0
-    if "exp_counter" not in st.session_state:
-        st.session_state["exp_counter"] = 0
+    if "sale_counter" not in st.session_state: st.session_state["sale_counter"] = 0
+    if "exp_counter"  not in st.session_state: st.session_state["exp_counter"]  = 0
 
     sc = st.session_state["sale_counter"]
     ec = st.session_state["exp_counter"]
 
     col_s, col_e = st.columns(2)
 
-    # ── SALES ──
     with col_s:
         st.markdown("#### ➕ নতুন বিক্রি যোগ করুন")
-        sale_name = st.text_input("নাম", placeholder="যেমন: আইস বার, কুলফি...", key=f"sale_name_{sc}")
-        sale_amount_raw = st.text_input("টাকা", placeholder="যেমন: ৫০০ বা 500", key=f"sale_amt_{sc}")
+        sale_name       = st.text_input("নাম", placeholder="যেমন: আইস বার, কুলফি...", key=f"sale_name_{sc}", max_chars=MAX_NAME_LEN)
+        sale_amount_raw = st.text_input("টাকা", placeholder="যেমন: ৫০০ বা 500", key=f"sale_amt_{sc}", max_chars=20)
 
         parsed_sale = parse_amount(sale_amount_raw) if sale_amount_raw.strip() else None
         if sale_amount_raw.strip() and parsed_sale is None:
-            st.caption("⚠️ সঠিক সংখ্যা লিখুন")
+            st.caption("⚠️ সঠিক সংখ্যা লিখুন (সর্বোচ্চ ১ কোটি)")
         elif parsed_sale:
             st.caption(f"✅ পরিমাণ: ৳ {parsed_sale:,.0f}")
 
         if st.button("✅  বিক্রি যোগ করুন", use_container_width=True, key="add_sale_btn"):
-            if sale_name.strip() and parsed_sale:
+            clean_name = sanitize_text(sale_name)
+            if clean_name and parsed_sale:
                 day = get_day_data(data, date_key)
-                day["sales"].append({"name": sale_name.strip(), "amount": parsed_sale})
+                day["sales"].append({"name": clean_name, "amount": parsed_sale})
                 save_data(data)
                 st.session_state["sale_counter"] += 1
                 st.rerun()
             else:
                 st.warning("নাম ও সঠিক টাকার পরিমাণ দিন!")
 
-    # ── EXPENSES ──
     with col_e:
         st.markdown("#### ➕ নতুন খরচ যোগ করুন")
-        exp_desc = st.text_input("বিবরণ", placeholder="যেমন: কাঁচামাল, ভাড়া...", key=f"exp_desc_{ec}")
-        exp_amount_raw = st.text_input("টাকা", placeholder="যেমন: ২৫০ বা 250", key=f"exp_amt_{ec}")
+        exp_desc        = st.text_input("বিবরণ", placeholder="যেমন: কাঁচামাল, ভাড়া...", key=f"exp_desc_{ec}", max_chars=MAX_NAME_LEN)
+        exp_amount_raw  = st.text_input("টাকা", placeholder="যেমন: ২৫০ বা 250", key=f"exp_amt_{ec}", max_chars=20)
 
         parsed_exp = parse_amount(exp_amount_raw) if exp_amount_raw.strip() else None
         if exp_amount_raw.strip() and parsed_exp is None:
-            st.caption("⚠️ সঠিক সংখ্যা লিখুন")
+            st.caption("⚠️ সঠিক সংখ্যা লিখুন (সর্বোচ্চ ১ কোটি)")
         elif parsed_exp:
             st.caption(f"✅ পরিমাণ: ৳ {parsed_exp:,.0f}")
 
         if st.button("✅  খরচ যোগ করুন", use_container_width=True, key="add_exp_btn"):
-            if exp_desc.strip() and parsed_exp:
+            clean_desc = sanitize_text(exp_desc)
+            if clean_desc and parsed_exp:
                 day = get_day_data(data, date_key)
-                day["expenses"].append({"desc": exp_desc.strip(), "amount": parsed_exp})
+                day["expenses"].append({"desc": clean_desc, "amount": parsed_exp})
                 save_data(data)
                 st.session_state["exp_counter"] += 1
                 st.rerun()
@@ -686,19 +819,63 @@ def render_admin_inputs(data, date_key):
 
 
 # ─────────────────────────────────────────────
+#  LOGO MANAGEMENT (admin only)
+# ─────────────────────────────────────────────
+def render_logo_manager():
+    st.markdown("---")
+    st.markdown("#### 🖼️ লোগো ম্যানেজমেন্ট")
+    col_l, col_r = st.columns(2)
+
+    with col_l:
+        st.markdown(
+            "<p style='font-size:13px;color:#8b949e;margin-bottom:8px'>"
+            "PNG বা JPEG ফাইল আপলোড করুন (সর্বোচ্চ 2 MB)</p>",
+            unsafe_allow_html=True,
+        )
+        uploaded = st.file_uploader(
+            "লোগো আপলোড করুন",
+            type=["png", "jpg", "jpeg"],
+            key="logo_upload",
+            label_visibility="collapsed",
+        )
+        if uploaded:
+            if uploaded.size > 2 * 1024 * 1024:
+                st.error("❌ ফাইল সাইজ ২ MB এর বেশি হতে পারবে না!")
+            else:
+                if save_logo(uploaded):
+                    st.success("✅ লোগো সফলভাবে আপলোড হয়েছে!")
+                    st.rerun()
+                else:
+                    st.error("❌ শুধু PNG বা JPEG ফাইল গ্রহণযোগ্য!")
+
+    with col_r:
+        if os.path.exists(LOGO_FILE):
+            b64 = load_logo_b64()
+            st.markdown(
+                f'<img src="data:image/png;base64,{b64}" style="width:100px;border-radius:12px;border:1px solid #2a3548">',
+                unsafe_allow_html=True,
+            )
+            if st.button("🗑️ লোগো মুছুন", key="del_logo_btn"):
+                delete_logo()
+                st.success("✅ লোগো মুছে ফেলা হয়েছে!")
+                st.rerun()
+        else:
+            st.markdown('<p class="empty-msg">কোনো লোগো নেই</p>', unsafe_allow_html=True)
+
+
+# ─────────────────────────────────────────────
 #  ONE-TIME DATE FIX  (admin only)
 # ─────────────────────────────────────────────
 def render_date_fix(data):
-    today_key = get_today_key()
+    today_key     = get_today_key()
     yesterday_key = date_to_key(datetime.today() - timedelta(days=1))
 
-    today_data = data["dates"].get(today_key, {"sales": [], "expenses": []})
+    today_data     = data["dates"].get(today_key,     {"sales": [], "expenses": []})
     yesterday_data = data["dates"].get(yesterday_key, {"sales": [], "expenses": []})
 
-    today_has_data = bool(today_data.get("sales") or today_data.get("expenses"))
+    today_has_data     = bool(today_data.get("sales")     or today_data.get("expenses"))
     yesterday_has_data = bool(yesterday_data.get("sales") or yesterday_data.get("expenses"))
 
-    # Only show if today has data but yesterday doesn't (wrong migration)
     if not (today_has_data and not yesterday_has_data):
         return
 
@@ -710,8 +887,7 @@ def render_date_fix(data):
     <p style="color:#e6edf3;font-size:13px;margin-bottom:0">
     আজকের ({today_key}) তারিখে ডেটা আছে কিন্তু এটা আসলে গতকালের ({yesterday_key}) ডেটা।
     নিচের বাটন ক্লিক করলে সব ডেটা <b>{yesterday_key}</b> তারিখে সরিয়ে দেওয়া হবে।
-    </p>
-    </div>
+    </p></div>
     """, unsafe_allow_html=True)
 
     if st.button(f"🔄 ডেটা {yesterday_key} তারিখে সরাও", key="fix_date_btn"):
@@ -735,43 +911,31 @@ def render_password_reset():
 
     col_a, col_v = st.columns(2)
 
-    with col_a:
-        st.markdown("""<div style="background:#1c2230;border:1px solid #2a3548;border-radius:12px;padding:16px 18px;">
-        <p style="color:#00c6ff;font-weight:700;margin-bottom:12px;font-size:14px">🔑 অ্যাডমিন পাসওয়ার্ড</p>""",
-                    unsafe_allow_html=True)
-        new_admin_pw = st.text_input("নতুন পাসওয়ার্ড", type="password", key=f"new_admin_pw_{pc}", placeholder="নতুন পাসওয়ার্ড লিখুন")
-        conf_admin_pw = st.text_input("নিশ্চিত করুন", type="password", key=f"conf_admin_pw_{pc}", placeholder="আবার লিখুন")
-        if st.button("✅ অ্যাডমিন পাসওয়ার্ড সেট করুন", use_container_width=True, key="save_admin_pw"):
-            if not new_admin_pw:
-                st.warning("পাসওয়ার্ড খালি রাখা যাবে না!")
-            elif new_admin_pw != conf_admin_pw:
-                st.error("পাসওয়ার্ড দুটো মিলছে না!")
-            else:
-                USERS["admin"]["password"] = new_admin_pw
-                save_passwords()
-                st.session_state["pw_counter"] += 1
-                st.success("✅ অ্যাডমিন পাসওয়ার্ড পরিবর্তন হয়েছে!")
-                st.rerun()
-        st.markdown("</div>", unsafe_allow_html=True)
+    def _pw_section(col, label, color, uname, btn_key, title_key):
+        with col:
+            st.markdown(
+                f'<div style="background:#1c2230;border:1px solid #2a3548;border-radius:12px;padding:16px 18px;">'
+                f'<p style="color:{color};font-weight:700;margin-bottom:12px;font-size:14px">{label}</p>',
+                unsafe_allow_html=True,
+            )
+            new_pw  = st.text_input("নতুন পাসওয়ার্ড", type="password", key=f"new_{title_key}_{pc}", placeholder="নতুন পাসওয়ার্ড লিখুন", max_chars=100)
+            conf_pw = st.text_input("নিশ্চিত করুন",   type="password", key=f"conf_{title_key}_{pc}", placeholder="আবার লিখুন",           max_chars=100)
+            if st.button(f"✅ {label} সেট করুন", use_container_width=True, key=btn_key):
+                if not new_pw:
+                    st.warning("পাসওয়ার্ড খালি রাখা যাবে না!")
+                elif len(new_pw) < 6:
+                    st.warning("পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে!")
+                elif new_pw != conf_pw:
+                    st.error("পাসওয়ার্ড দুটো মিলছে না!")
+                else:
+                    set_password(uname, new_pw)
+                    st.session_state["pw_counter"] += 1
+                    st.success(f"✅ {label} পরিবর্তন হয়েছে!")
+                    st.rerun()
+            st.markdown("</div>", unsafe_allow_html=True)
 
-    with col_v:
-        st.markdown("""<div style="background:#1c2230;border:1px solid #2a3548;border-radius:12px;padding:16px 18px;">
-        <p style="color:#f7c948;font-weight:700;margin-bottom:12px;font-size:14px">👁️ ভিউয়ার পাসওয়ার্ড</p>""",
-                    unsafe_allow_html=True)
-        new_view_pw = st.text_input("নতুন পাসওয়ার্ড", type="password", key=f"new_view_pw_{pc}", placeholder="নতুন পাসওয়ার্ড লিখুন")
-        conf_view_pw = st.text_input("নিশ্চিত করুন", type="password", key=f"conf_view_pw_{pc}", placeholder="আবার লিখুন")
-        if st.button("✅ ভিউয়ার পাসওয়ার্ড সেট করুন", use_container_width=True, key="save_view_pw"):
-            if not new_view_pw:
-                st.warning("পাসওয়ার্ড খালি রাখা যাবে না!")
-            elif new_view_pw != conf_view_pw:
-                st.error("পাসওয়ার্ড দুটো মিলছে না!")
-            else:
-                USERS["milky"]["password"] = new_view_pw
-                save_passwords()
-                st.session_state["pw_counter"] += 1
-                st.success("✅ ভিউয়ার পাসওয়ার্ড পরিবর্তন হয়েছে!")
-                st.rerun()
-        st.markdown("</div>", unsafe_allow_html=True)
+    _pw_section(col_a, "🔑 অ্যাডমিন পাসওয়ার্ড", "#00c6ff", "admin", "save_admin_pw", "admin_pw")
+    _pw_section(col_v, "👁️ ভিউয়ার পাসওয়ার্ড",  "#f7c948", "milky", "save_view_pw",  "view_pw")
 
 
 # ─────────────────────────────────────────────
@@ -788,7 +952,7 @@ def main():
         login_page()
         return
 
-    data = load_data()
+    data     = load_data()
     is_admin = st.session_state.role == "admin"
 
     if not is_admin:
@@ -799,13 +963,10 @@ def main():
         { display:none !important; visibility:hidden !important; }
         </style>""", unsafe_allow_html=True)
 
-    # ── Date navigation (renders before header so we know which date) ──
     date_key = render_date_nav(data)
-
-    # ── Header ──
     render_header(date_key)
 
-    # ── Logout ──
+    # Logout button
     if is_admin:
         _, _, logout_col = st.columns([6, 1, 1])
         with logout_col:
@@ -821,20 +982,18 @@ def main():
                     st.session_state.pop(k, None)
                 st.rerun()
 
-    # ── Summary (with carry forward) ──
     render_summary(data, date_key)
 
-    # ── Tables ──
     col_left, col_right = st.columns(2)
     with col_left:
         render_sales_table(data, date_key, is_admin)
     with col_right:
         render_expense_table(data, date_key, is_admin)
 
-    # ── Admin forms ──
     if is_admin:
         render_date_fix(data)
         render_admin_inputs(data, date_key)
+        render_logo_manager()
         render_password_reset()
 
 
