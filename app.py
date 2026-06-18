@@ -22,10 +22,10 @@ st.set_page_config(
 # ─────────────────────────────────────────────
 #  SECURITY CONSTANTS
 # ─────────────────────────────────────────────
-MAX_LOGIN_ATTEMPTS   = 5       # lockout after N failures
-LOCKOUT_SECONDS      = 300     # 5-minute lockout
-MAX_NAME_LEN         = 100     # max chars for item names / descriptions
-MAX_AMOUNT           = 10_000_000  # ৳1 crore ceiling per entry
+MAX_LOGIN_ATTEMPTS   = 5
+LOCKOUT_SECONDS      = 300
+MAX_NAME_LEN         = 100
+MAX_AMOUNT           = 10_000_000
 SECRET_KEY           = os.environ.get("APP_SECRET", "milky-icebar-secret-2026")
 
 LOGO_FILE = "logo.png"
@@ -45,14 +45,11 @@ DATA_FILE = "data.json"
 PASS_FILE = "passwords.json"
 
 
-# ── Secure password hashing ──────────────────
 def _hash_pw(password: str) -> str:
-    """HMAC-SHA256 hash so raw passwords are never stored on disk."""
     return hmac.new(SECRET_KEY.encode(), password.encode(), hashlib.sha256).hexdigest()
 
 
 def _verify_pw(password: str, stored: str) -> bool:
-    """Constant-time comparison to prevent timing attacks."""
     return hmac.compare_digest(_hash_pw(password), stored)
 
 
@@ -62,9 +59,8 @@ def load_passwords():
             saved = json.load(f)
         for uname, hashed in saved.items():
             if uname in USERS:
-                USERS[uname]["password"] = hashed   # already hashed on disk
+                USERS[uname]["password"] = hashed
     else:
-        # First run: hash the default passwords and save
         for u in USERS:
             USERS[u]["password"] = _hash_pw(USERS[u]["password"])
         save_passwords()
@@ -76,7 +72,6 @@ def save_passwords():
 
 
 def set_password(username: str, new_plain: str):
-    """Hash a new plain-text password and persist it."""
     USERS[username]["password"] = _hash_pw(new_plain)
     save_passwords()
 
@@ -89,7 +84,6 @@ def _bf_key(username: str) -> str:
 
 
 def check_login_allowed(username: str) -> tuple[bool, int]:
-    """Returns (allowed, seconds_remaining)."""
     key = _bf_key(username)
     info = st.session_state.get(key, {"attempts": 0, "locked_until": 0})
     now = time.time()
@@ -119,10 +113,7 @@ def record_success_login(username: str):
 _ALLOWED_TEXT_RE = re.compile(r"[^\w\s\u0980-\u09FF,.\-/()+]")
 
 def sanitize_text(text: str) -> str:
-    """Strip HTML/script tags and dangerous characters."""
-    # Remove any HTML tags
     text = re.sub(r"<[^>]*>", "", text)
-    # Remove characters outside safe set (Bengali + ASCII word chars + common punctuation)
     text = _ALLOWED_TEXT_RE.sub("", text)
     return text[:MAX_NAME_LEN].strip()
 
@@ -138,7 +129,6 @@ def load_data():
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE, "r", encoding="utf-8") as f:
             raw = json.load(f)
-        # Migrate old flat format → place under yesterday
         if "sales" in raw or "expenses" in raw:
             yesterday = date_to_key(datetime.today() - timedelta(days=1))
             migrated = {
@@ -219,11 +209,6 @@ def get_carry_forward(data, date_key: str) -> float:
 
 
 def parse_manual_date(text: str) -> Optional[str]:
-    """
-    Accept several formats and return a valid date_key or None.
-    Accepted: DD/MM/YYYY  DD-MM-YYYY  YYYY-MM-DD  DD Mon YYYY  DD/Mon/YYYY
-    Also accepts Bengali digits.
-    """
     text = bn_to_en(text.strip())
     today = datetime.today()
 
@@ -256,7 +241,7 @@ def parse_manual_date(text: str) -> Optional[str]:
     if dt is None:
         return None
     if dt > today:
-        return None           # no future dates
+        return None
     return date_to_key(dt)
 
 
@@ -272,7 +257,6 @@ def load_logo_b64() -> Optional[str]:
 
 def save_logo(uploaded_file):
     data = uploaded_file.read()
-    # Basic magic-byte check: PNG or JPEG only
     if data[:4] == b'\x89PNG' or data[:3] == b'\xff\xd8\xff':
         with open(LOGO_FILE, "wb") as f:
             f.write(data)
@@ -299,59 +283,130 @@ def inject_css():
         color: #e6edf3;
     }
     #MainMenu, footer, header { visibility: hidden; }
-    .block-container { padding-top: 1rem !important; }
+    .block-container { padding-top: 0.5rem !important; }
 
+    /* ── HEADER ── */
     .app-header {
-        text-align: center;
-        padding: 22px 10px 14px;
-        background: linear-gradient(180deg, rgba(0,198,255,0.07) 0%, transparent 100%);
-        border-bottom: 1px solid #2a3548;
+        background: #0d1117;
+        border-bottom: 1px solid rgba(0,198,255,0.12);
         margin-bottom: 20px;
+        padding-bottom: 20px;
     }
-    .app-header .logo-img {
+    .header-topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 11px 24px;
+        border-bottom: 1px solid rgba(255,255,255,0.04);
+        margin-bottom: 22px;
+    }
+    .topbar-live {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 11px;
+        color: rgba(255,255,255,0.28);
+        letter-spacing: 2px;
+        text-transform: uppercase;
+        font-weight: 600;
+    }
+    .live-dot {
+        width: 7px; height: 7px;
+        border-radius: 50%;
+        background: #3dffa0;
+        animation: livepulse 2s infinite;
+        flex-shrink: 0;
+    }
+    @keyframes livepulse {
+        0%,100%{ opacity:1; box-shadow:0 0 0 0 rgba(61,255,160,0.4); }
+        50%{ opacity:0.4; box-shadow:0 0 0 4px rgba(61,255,160,0); }
+    }
+    .topbar-badges { display:flex; align-items:center; gap:10px; }
+
+    .header-center {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 11px;
+    }
+    .header-eyebrow {
+        font-size: 10px;
+        letter-spacing: 4px;
+        text-transform: uppercase;
+        color: rgba(255,255,255,0.2);
+        font-weight: 600;
+    }
+    .logo-ring {
+        width: 88px; height: 88px;
+        border-radius: 50%;
+        border: 2px solid rgba(0,198,255,0.28);
+        background: rgba(0,198,255,0.05);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        position: relative;
+    }
+    .logo-ring::before {
+        content: '';
+        position: absolute;
+        inset: -8px;
+        border-radius: 50%;
+        border: 1px solid rgba(0,198,255,0.08);
+    }
+    .logo-ring img {
         width: 72px; height: 72px;
         object-fit: contain;
         border-radius: 50%;
-        border: 2px solid rgba(0,198,255,0.4);
-        margin-bottom: 6px;
-        display: block;
-        margin-left: auto;
-        margin-right: auto;
     }
-    .app-header .brand {
+    .logo-emoji { font-size: 38px; }
+    .header-divider {
+        width: 56px; height: 1px;
+        background: linear-gradient(90deg, transparent, rgba(0,198,255,0.45), transparent);
+    }
+    .brand {
         font-family: 'Tiro Bangla', serif;
         font-size: 30px;
         color: #d0f0ff;
-        text-shadow: 0 0 28px rgba(0,198,255,0.45);
+        text-align: center;
         line-height: 1.3;
     }
-    .app-header .brand span { color: #00c6ff; }
-    .app-header .date-badge {
+    .brand span { color: #00c6ff; }
+    .header-tagline {
+        font-size: 12px;
+        color: rgba(255,255,255,0.25);
+        letter-spacing: 1.5px;
+        text-align: center;
+    }
+
+    /* ── BADGES ── */
+    .date-badge {
         display: inline-block;
-        margin-top: 8px;
-        background: #1c2230;
-        border: 1px solid #2a3548;
+        background: rgba(247,201,72,0.08);
+        border: 1px solid rgba(247,201,72,0.22);
         border-radius: 20px;
-        padding: 4px 16px;
-        font-size: 13px;
+        padding: 4px 14px;
+        font-size: 12px;
         color: #f7c948;
         letter-spacing: 1px;
+        font-weight: 600;
     }
-    .app-header .role-badge {
+    .role-badge {
         display: inline-block;
-        margin-left: 10px;
-        padding: 3px 12px;
+        padding: 4px 14px;
         border-radius: 20px;
-        font-size: 12px;
+        font-size: 11px;
         font-weight: 700;
-        letter-spacing: 1px;
+        letter-spacing: 1.5px;
+        text-transform: uppercase;
     }
-    .role-admin  { background: rgba(0,198,255,0.15); color: #00c6ff; border: 1px solid rgba(0,198,255,0.3); }
-    .role-viewer { background: rgba(247,201,72,0.15); color: #f7c948; border: 1px solid rgba(247,201,72,0.3); }
+    .role-admin  { background: rgba(0,198,255,0.12); color: #00c6ff; border: 1px solid rgba(0,198,255,0.28); }
+    .role-viewer { background: rgba(247,201,72,0.12); color: #f7c948; border: 1px solid rgba(247,201,72,0.28); }
 
+    /* ── SECTION TITLES ── */
     .sec-title-sales   { color: #3dffa0; font-size: 17px; font-weight: 700; letter-spacing:1px; }
     .sec-title-expense { color: #ff5e7a; font-size: 17px; font-weight: 700; letter-spacing:1px; }
 
+    /* ── SUMMARY CARDS ── */
     .sum-row { display:flex; gap:12px; margin-bottom:18px; flex-wrap:wrap; }
     .sum-card {
         flex:1; min-width:120px;
@@ -363,7 +418,7 @@ def inject_css():
     .cf-card {
         flex:1; min-width:120px;
         background:linear-gradient(135deg,rgba(180,120,255,0.12),rgba(100,80,200,0.08));
-        border:1px solid rgba(180,120,255,0.35); border-radius:14px;
+        border:1px solid rgba(180,120,255,0.3); border-radius:14px;
         padding:14px 18px; text-align:center;
     }
     .cf-card .lbl { font-size:11px; letter-spacing:1.5px; text-transform:uppercase; color:#a78bfa; }
@@ -375,6 +430,7 @@ def inject_css():
     .c-purple { color: #c084fc; }
     .c-muted  { color: #8b949e; }
 
+    /* ── DATE NAV ── */
     .date-nav {
         display:flex; align-items:center; justify-content:center;
         gap:10px; margin-bottom:18px;
@@ -387,6 +443,7 @@ def inject_css():
         color:#3dffa0; font-size:11px; padding:2px 8px; border-radius:10px; font-weight:600;
     }
 
+    /* ── TABLES ── */
     .row-header {
         display:flex; align-items:center; background:#161b22;
         border-bottom:1px solid #2a3548; padding:7px 4px;
@@ -403,6 +460,7 @@ def inject_css():
     .col-amt-s { width:110px; text-align:right; color:#3dffa0; font-weight:700; flex-shrink:0; padding-right:8px; }
     .col-amt-e { width:110px; text-align:right; color:#ff5e7a; font-weight:700; flex-shrink:0; padding-right:8px; }
 
+    /* ── LOGIN ── */
     .login-wrap {
         max-width:400px; margin:80px auto 0;
         background:#1c2230; border:1px solid #2a3548;
@@ -433,8 +491,11 @@ def inject_css():
 def login_page():
     logo_b64 = load_logo_b64()
     logo_html = (
-        f'<img class="logo-img" src="data:image/png;base64,{logo_b64}" alt="logo">'
-        if logo_b64 else '<div style="font-size:44px;margin-bottom:6px">🍦</div>'
+        f'<img src="data:image/png;base64,{logo_b64}" '
+        f'style="width:72px;height:72px;object-fit:contain;border-radius:50%;'
+        f'border:2px solid rgba(0,198,255,0.4);margin-bottom:6px;" alt="logo">'
+        if logo_b64
+        else '<div style="font-size:44px;margin-bottom:6px">🍦</div>'
     )
     st.markdown(f"""
     <div class="login-wrap">
@@ -452,10 +513,7 @@ def login_page():
         st.markdown("<br>", unsafe_allow_html=True)
 
         if st.button("🔑  লগইন করুন", use_container_width=True):
-            # Sanitise inputs
             username = username.strip().lower()
-
-            # Check lockout
             allowed, remaining = check_login_allowed(username)
             if not allowed:
                 st.error(f"🔒 অনেকবার ভুল চেষ্টা! {remaining} সেকেন্ড পর আবার চেষ্টা করুন।")
@@ -477,33 +535,50 @@ def login_page():
 
 
 # ─────────────────────────────────────────────
-#  HEADER
+#  HEADER  ← পুরোপুরি নতুন, professional
 # ─────────────────────────────────────────────
 def render_header(viewing_date_key: str):
-    role        = st.session_state.get("role", "viewer")
-    role_label  = "অ্যাডমিন" if role == "admin" else "ভিউয়ার"
-    role_class  = "role-admin" if role == "admin" else "role-viewer"
-    logo_b64    = load_logo_b64()
+    role       = st.session_state.get("role", "viewer")
+    role_label = "অ্যাডমিন" if role == "admin" else "ভিউয়ার"
+    role_class = "role-admin" if role == "admin" else "role-viewer"
+    logo_b64   = load_logo_b64()
 
-    logo_html = (
-        f'<img class="logo-img" src="data:image/png;base64,{logo_b64}" alt="logo">'
-        if logo_b64 else ""
-    )
+    if logo_b64:
+        logo_inner = (
+            f'<img src="data:image/png;base64,{logo_b64}" '
+            f'style="width:72px;height:72px;object-fit:contain;border-radius:50%;" alt="logo">'
+        )
+    else:
+        logo_inner = '<span class="logo-emoji">🍦</span>'
 
     st.markdown(f"""
     <div class="app-header">
-        {logo_html}
-        <div class="brand">ঢাকার <span>মিল্কী</span> আইস বার</div>
-        <div>
-            <span class="date-badge">📅 {viewing_date_key}</span>
-            <span class="role-badge {role_class}">{'🔑' if role=='admin' else '👁️'} {role_label}</span>
+
+      <div class="header-topbar">
+        <div class="topbar-live">
+          <span class="live-dot"></span>
+          লাইভ ট্র্যাকিং চালু
         </div>
+        <div class="topbar-badges">
+          <span class="date-badge">📅 {viewing_date_key}</span>
+          <span class="role-badge {role_class}">{'🔑' if role == 'admin' else '👁️'} {role_label}</span>
+        </div>
+      </div>
+
+      <div class="header-center">
+        <div class="header-eyebrow">ঢাকা · বাংলাদেশ</div>
+        <div class="logo-ring">{logo_inner}</div>
+        <div class="header-divider"></div>
+        <div class="brand">ঢাকার <span>মিল্কী</span> আইস বার</div>
+        <div class="header-tagline">প্রতিদিনের হিসাব — এক নজরে</div>
+      </div>
+
     </div>
     """, unsafe_allow_html=True)
 
 
 # ─────────────────────────────────────────────
-#  DATE NAVIGATION  (with manual date input)
+#  DATE NAVIGATION
 # ─────────────────────────────────────────────
 def render_date_nav(data):
     today_key = get_today_key()
@@ -513,7 +588,6 @@ def render_date_nav(data):
     cur      = st.session_state["viewing_date"]
     is_today = (cur == today_key)
 
-    # ── Row 1: prev / display / next / today ─────────────────────────────
     col_prev, col_mid, col_next, col_today = st.columns([1, 3, 1, 1])
 
     with col_prev:
@@ -543,7 +617,6 @@ def render_date_nav(data):
                 st.session_state["viewing_date"] = today_key
                 st.rerun()
 
-    # ── Row 2: manual date jump ───────────────────────────────────────────
     with st.expander("📆 নির্দিষ্ট তারিখে যান", expanded=False):
         st.markdown(
             "<p style='font-size:12px;color:#8b949e;margin:0 0 6px'>ফরম্যাট: DD/MM/YYYY বা DD-MM-YYYY বা DD/Jan/2025</p>",
@@ -643,7 +716,7 @@ def render_summary(data, date_key: str):
 
 
 # ─────────────────────────────────────────────
-#  TABLE CSS (inline to avoid redefining)
+#  TABLE CSS
 # ─────────────────────────────────────────────
 ROW_HEADER_CSS = """<style>
 .row-header{display:flex;align-items:center;background:#161b22;border-bottom:1px solid #2a3548;padding:7px 4px;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:#8b949e;font-weight:600;border-radius:8px 8px 0 0}
@@ -819,7 +892,7 @@ def render_admin_inputs(data, date_key):
 
 
 # ─────────────────────────────────────────────
-#  LOGO MANAGEMENT (admin only)
+#  LOGO MANAGEMENT
 # ─────────────────────────────────────────────
 def render_logo_manager():
     st.markdown("---")
@@ -864,7 +937,7 @@ def render_logo_manager():
 
 
 # ─────────────────────────────────────────────
-#  ONE-TIME DATE FIX  (admin only)
+#  ONE-TIME DATE FIX
 # ─────────────────────────────────────────────
 def render_date_fix(data):
     today_key     = get_today_key()
@@ -963,10 +1036,15 @@ def main():
         { display:none !important; visibility:hidden !important; }
         </style>""", unsafe_allow_html=True)
 
-    date_key = render_date_nav(data)
-    render_header(date_key)
+    # ── session এ date আগে সেট করি যাতে header ঠিকঠাক দেখায় ──
+    today_key = get_today_key()
+    if "viewing_date" not in st.session_state:
+        st.session_state["viewing_date"] = today_key
 
-    # Logout button
+    # ── HEADER সবার আগে ──
+    render_header(st.session_state["viewing_date"])
+
+    # ── Logout button ──
     if is_admin:
         _, _, logout_col = st.columns([6, 1, 1])
         with logout_col:
@@ -982,14 +1060,20 @@ def main():
                     st.session_state.pop(k, None)
                 st.rerun()
 
+    # ── Date navigation (header এর পরে) ──
+    date_key = render_date_nav(data)
+
+    # ── Summary ──
     render_summary(data, date_key)
 
+    # ── Tables ──
     col_left, col_right = st.columns(2)
     with col_left:
         render_sales_table(data, date_key, is_admin)
     with col_right:
         render_expense_table(data, date_key, is_admin)
 
+    # ── Admin only ──
     if is_admin:
         render_date_fix(data)
         render_admin_inputs(data, date_key)
