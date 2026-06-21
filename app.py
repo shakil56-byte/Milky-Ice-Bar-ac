@@ -402,9 +402,22 @@ def inject_css():
     .role-admin  { background: rgba(0,198,255,0.12); color: #00c6ff; border: 1px solid rgba(0,198,255,0.28); }
     .role-viewer { background: rgba(247,201,72,0.12); color: #f7c948; border: 1px solid rgba(247,201,72,0.28); }
 
+    /* ── TABS (custom toggle) ── */
+    .tab-bar {
+        display:flex; gap:8px; margin-bottom:18px;
+        background:#161b22; border:1px solid #2a3548;
+        border-radius:14px; padding:6px;
+    }
+    div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] button[kind="primary"] {
+        background: linear-gradient(135deg,#00c6ff,#0072ff) !important;
+        color: #04111c !important;
+        border: none !important;
+    }
+
     /* ── SECTION TITLES ── */
     .sec-title-sales   { color: #3dffa0; font-size: 17px; font-weight: 700; letter-spacing:1px; }
     .sec-title-expense { color: #ff5e7a; font-size: 17px; font-weight: 700; letter-spacing:1px; }
+    .sec-title-stock    { color: #00c6ff; font-size: 17px; font-weight: 700; letter-spacing:1px; }
 
     /* ── SUMMARY CARDS ── */
     .sum-row { display:flex; gap:12px; margin-bottom:18px; flex-wrap:wrap; }
@@ -429,6 +442,22 @@ def inject_css():
     .c-gold   { color: #f7c948; }
     .c-purple { color: #c084fc; }
     .c-muted  { color: #8b949e; }
+    .c-blue   { color: #00c6ff; }
+
+    /* ── CATEGORY BREAKDOWN ── */
+    .cat-row {
+        display:flex; align-items:center; gap:10px;
+        background:#1c2230; border:1px solid #2a3548; border-radius:10px;
+        padding:10px 14px; margin-bottom:8px;
+    }
+    .cat-row .cat-name { flex:1; font-weight:600; font-size:14px; }
+    .cat-row .cat-amt   { font-weight:700; color:#ff5e7a; font-size:14px; }
+    .cat-row .cat-bar-wrap { flex:2; background:#0d1117; border-radius:6px; height:8px; overflow:hidden; }
+    .cat-row .cat-bar { height:100%; background:linear-gradient(90deg,#ff5e7a,#ff8fa3); border-radius:6px; }
+    .cat-pill {
+        display:inline-block; background:rgba(0,198,255,0.1); border:1px solid rgba(0,198,255,0.25);
+        color:#00c6ff; font-size:11px; padding:2px 10px; border-radius:12px; font-weight:600; margin-left:6px;
+    }
 
     /* ── DATE NAV ── */
     .date-nav {
@@ -459,6 +488,23 @@ def inject_css():
     .col-name { flex:1; font-weight:500; }
     .col-amt-s { width:110px; text-align:right; color:#3dffa0; font-weight:700; flex-shrink:0; padding-right:8px; }
     .col-amt-e { width:110px; text-align:right; color:#ff5e7a; font-weight:700; flex-shrink:0; padding-right:8px; }
+
+    /* ── STOCK TABLE ── */
+    .stock-card {
+        background:#1c2230; border:1px solid #2a3548; border-radius:14px;
+        padding:14px 18px; margin-bottom:10px;
+    }
+    .stock-card .stock-name { font-weight:700; font-size:15px; color:#e6edf3; }
+    .stock-card .stock-unit { font-size:11px; color:#8b949e; margin-left:6px; }
+    .stock-stats { display:flex; gap:18px; margin-top:8px; flex-wrap:wrap; }
+    .stock-stat { font-size:12px; color:#8b949e; }
+    .stock-stat b { font-size:15px; display:block; margin-top:2px; }
+    .stock-low { color:#ff5e7a !important; }
+    .stock-ok  { color:#3dffa0 !important; }
+    .low-stock-badge {
+        background:rgba(255,94,122,0.12); border:1px solid rgba(255,94,122,0.3);
+        color:#ff5e7a; font-size:10px; padding:2px 8px; border-radius:10px; font-weight:700; margin-left:8px;
+    }
 
     /* ── LOGIN ── */
     .login-wrap {
@@ -535,7 +581,7 @@ def login_page():
 
 
 # ─────────────────────────────────────────────
-#  HEADER  ← পুরোপুরি নতুন, professional
+#  HEADER
 # ─────────────────────────────────────────────
 def render_header(viewing_date_key: str):
     role       = st.session_state.get("role", "viewer")
@@ -575,6 +621,36 @@ def render_header(viewing_date_key: str):
 
     </div>
     """, unsafe_allow_html=True)
+
+
+# ─────────────────────────────────────────────
+#  MAIN NAV TABS (হিসাব / স্টক)
+# ─────────────────────────────────────────────
+def render_main_tabs():
+    if "active_tab" not in st.session_state:
+        st.session_state["active_tab"] = "hisab"
+
+    col1, col2, _ = st.columns([1.4, 1.4, 5])
+    with col1:
+        if st.button(
+            "📒 দৈনিক হিসাব",
+            use_container_width=True,
+            key="tab_hisab",
+            type="primary" if st.session_state["active_tab"] == "hisab" else "secondary",
+        ):
+            st.session_state["active_tab"] = "hisab"
+            st.rerun()
+    with col2:
+        if st.button(
+            "📦 স্টক",
+            use_container_width=True,
+            key="tab_stock",
+            type="primary" if st.session_state["active_tab"] == "stock" else "secondary",
+        ):
+            st.session_state["active_tab"] = "stock"
+            st.rerun()
+
+    return st.session_state["active_tab"]
 
 
 # ─────────────────────────────────────────────
@@ -716,6 +792,38 @@ def render_summary(data, date_key: str):
 
 
 # ─────────────────────────────────────────────
+#  EXPENSE CATEGORY BREAKDOWN
+# ─────────────────────────────────────────────
+def render_category_breakdown(data, date_key: str):
+    day = get_day_data(data, date_key)
+    rows = day["expenses"]
+    if not rows:
+        return
+
+    totals = {}
+    for e in rows:
+        cat = e.get("category", "অন্যান্য")
+        totals[cat] = totals.get(cat, 0) + e["amount"]
+
+    if not totals:
+        return
+
+    max_amt = max(totals.values()) if totals else 1
+    sorted_cats = sorted(totals.items(), key=lambda x: -x[1])
+
+    with st.expander("📊 ক্যাটাগরি অনুযায়ী খরচ", expanded=False):
+        for cat, amt in sorted_cats:
+            pct = (amt / max_amt) * 100 if max_amt else 0
+            st.markdown(f"""
+            <div class="cat-row">
+                <span class="cat-name">{cat}</span>
+                <div class="cat-bar-wrap"><div class="cat-bar" style="width:{pct:.0f}%"></div></div>
+                <span class="cat-amt">৳ {amt:,.0f}</span>
+            </div>
+            """, unsafe_allow_html=True)
+
+
+# ─────────────────────────────────────────────
 #  TABLE CSS
 # ─────────────────────────────────────────────
 ROW_HEADER_CSS = """<style>
@@ -765,7 +873,7 @@ def render_sales_table(data, date_key, is_admin):
 
 
 # ─────────────────────────────────────────────
-#  EXPENSE TABLE
+#  EXPENSE TABLE (with category tag)
 # ─────────────────────────────────────────────
 def render_expense_table(data, date_key, is_admin):
     day = get_day_data(data, date_key)
@@ -783,10 +891,11 @@ def render_expense_table(data, date_key, is_admin):
                 col_main, col_btn = st.columns([11, 1])
             else:
                 col_main = st.container(); col_btn = None
+            cat = e.get("category", "অন্যান্য")
             with col_main:
                 st.markdown(f"""<div class="row-item">
                     <span class="col-num">{i+1}</span>
-                    <span class="col-name">{e['desc']}</span>
+                    <span class="col-name">{e['desc']}<span class="cat-pill">{cat}</span></span>
                     <span class="col-amt-e">৳ {e['amount']:,.0f}</span>
                 </div>""", unsafe_allow_html=True)
             if is_admin and col_btn:
@@ -818,6 +927,56 @@ def parse_amount(raw: str) -> Optional[float]:
 
 
 # ─────────────────────────────────────────────
+#  EXPENSE CATEGORIES (preset + custom)
+# ─────────────────────────────────────────────
+DEFAULT_CATEGORIES = [
+    "কাঁচামাল",
+    "ভাড়া",
+    "বেতন",
+    "বিদ্যুৎ",
+    "পরিবহন",
+    "মেরামত",
+    "অন্যান্য",
+]
+CATEGORY_FILE = "categories.json"
+ADD_NEW_LABEL = "➕ নতুন ক্যাটাগরি যোগ করুন..."
+
+
+def load_categories() -> list:
+    if os.path.exists(CATEGORY_FILE):
+        try:
+            with open(CATEGORY_FILE, "r", encoding="utf-8") as f:
+                cats = json.load(f)
+            if isinstance(cats, list) and cats:
+                # ensure defaults always present, no duplicates, preserve order
+                merged = list(dict.fromkeys(DEFAULT_CATEGORIES + cats))
+                return merged
+        except (json.JSONDecodeError, OSError):
+            pass
+    save_categories(DEFAULT_CATEGORIES)
+    return list(DEFAULT_CATEGORIES)
+
+
+def save_categories(cats: list):
+    with open(CATEGORY_FILE, "w", encoding="utf-8") as f:
+        json.dump(cats, f, ensure_ascii=False, indent=2)
+
+
+def add_category_if_new(cat_name: str) -> list:
+    cats = load_categories()
+    if cat_name not in cats:
+        # keep "অন্যান্য" at the end
+        if "অন্যান্য" in cats:
+            cats.remove("অন্যান্য")
+            cats.append(cat_name)
+            cats.append("অন্যান্য")
+        else:
+            cats.append(cat_name)
+        save_categories(cats)
+    return cats
+
+
+# ─────────────────────────────────────────────
 #  ADMIN INPUT FORMS
 # ─────────────────────────────────────────────
 def render_admin_inputs(data, date_key):
@@ -840,6 +999,7 @@ def render_admin_inputs(data, date_key):
 
     if "sale_counter" not in st.session_state: st.session_state["sale_counter"] = 0
     if "exp_counter"  not in st.session_state: st.session_state["exp_counter"]  = 0
+    if "exp_new_cat_mode" not in st.session_state: st.session_state["exp_new_cat_mode"] = False
 
     sc = st.session_state["sale_counter"]
     ec = st.session_state["exp_counter"]
@@ -871,6 +1031,20 @@ def render_admin_inputs(data, date_key):
     with col_e:
         st.markdown("#### ➕ নতুন খরচ যোগ করুন")
         exp_desc        = st.text_input("বিবরণ", placeholder="যেমন: কাঁচামাল, ভাড়া...", key=f"exp_desc_{ec}", max_chars=MAX_NAME_LEN)
+
+        categories = load_categories()
+        cat_options = categories + [ADD_NEW_LABEL]
+        selected_cat = st.selectbox("ক্যাটাগরি", cat_options, key=f"exp_cat_{ec}")
+
+        new_cat_name = ""
+        if selected_cat == ADD_NEW_LABEL:
+            new_cat_name = st.text_input(
+                "নতুন ক্যাটাগরির নাম",
+                placeholder="যেমন: প্যাকেজিং",
+                key=f"exp_new_cat_{ec}",
+                max_chars=40,
+            )
+
         exp_amount_raw  = st.text_input("টাকা", placeholder="যেমন: ২৫০ বা 250", key=f"exp_amt_{ec}", max_chars=20)
 
         parsed_exp = parse_amount(exp_amount_raw) if exp_amount_raw.strip() else None
@@ -881,14 +1055,74 @@ def render_admin_inputs(data, date_key):
 
         if st.button("✅  খরচ যোগ করুন", use_container_width=True, key="add_exp_btn"):
             clean_desc = sanitize_text(exp_desc)
-            if clean_desc and parsed_exp:
+
+            if selected_cat == ADD_NEW_LABEL:
+                final_cat = sanitize_text(new_cat_name)
+            else:
+                final_cat = selected_cat
+
+            if clean_desc and parsed_exp and final_cat:
+                if selected_cat == ADD_NEW_LABEL:
+                    add_category_if_new(final_cat)
                 day = get_day_data(data, date_key)
-                day["expenses"].append({"desc": clean_desc, "amount": parsed_exp})
+                day["expenses"].append({"desc": clean_desc, "amount": parsed_exp, "category": final_cat})
                 save_data(data)
                 st.session_state["exp_counter"] += 1
                 st.rerun()
+            elif selected_cat == ADD_NEW_LABEL and not final_cat:
+                st.warning("নতুন ক্যাটাগরির নাম দিন!")
             else:
-                st.warning("বিবরণ ও সঠিক টাকার পরিমাণ দিন!")
+                st.warning("বিবরণ, ক্যাটাগরি ও সঠিক টাকার পরিমাণ দিন!")
+
+
+# ─────────────────────────────────────────────
+#  CATEGORY MANAGEMENT (admin)
+# ─────────────────────────────────────────────
+def render_category_manager():
+    st.markdown("---")
+    st.markdown("#### 🏷️ খরচের ক্যাটাগরি ম্যানেজমেন্ট")
+
+    categories = load_categories()
+
+    col_l, col_r = st.columns(2)
+    with col_l:
+        st.markdown(
+            "<p style='font-size:13px;color:#8b949e;margin-bottom:8px'>বর্তমান ক্যাটাগরি সমূহ</p>",
+            unsafe_allow_html=True,
+        )
+        for cat in categories:
+            is_default = cat in DEFAULT_CATEGORIES
+            c1, c2 = st.columns([5, 1])
+            with c1:
+                st.markdown(f"<div class='cat-pill' style='margin:3px 0'>{cat}</div>", unsafe_allow_html=True)
+            with c2:
+                if not is_default:
+                    if st.button("✕", key=f"del_cat_{cat}"):
+                        categories.remove(cat)
+                        save_categories(categories)
+                        st.rerun()
+
+    with col_r:
+        st.markdown(
+            "<p style='font-size:13px;color:#8b949e;margin-bottom:8px'>নতুন ক্যাটাগরি যোগ করুন</p>",
+            unsafe_allow_html=True,
+        )
+        if "cat_mgr_counter" not in st.session_state:
+            st.session_state["cat_mgr_counter"] = 0
+        cmc = st.session_state["cat_mgr_counter"]
+        new_cat = st.text_input("ক্যাটাগরির নাম", placeholder="যেমন: প্যাকেজিং", key=f"cat_mgr_input_{cmc}", max_chars=40)
+        if st.button("➕ যোগ করুন", key="cat_mgr_add_btn"):
+            clean = sanitize_text(new_cat)
+            if clean:
+                if clean in categories:
+                    st.warning("এই ক্যাটাগরি আগে থেকেই আছে!")
+                else:
+                    add_category_if_new(clean)
+                    st.session_state["cat_mgr_counter"] += 1
+                    st.success(f"✅ '{clean}' ক্যাটাগরি যোগ হয়েছে!")
+                    st.rerun()
+            else:
+                st.warning("ক্যাটাগরির নাম দিন!")
 
 
 # ─────────────────────────────────────────────
@@ -1011,6 +1245,219 @@ def render_password_reset():
     _pw_section(col_v, "👁️ ভিউয়ার পাসওয়ার্ড",  "#f7c948", "milky", "save_view_pw",  "view_pw")
 
 
+# ═════════════════════════════════════════════
+#  STOCK (INVENTORY) MODULE
+# ═════════════════════════════════════════════
+STOCK_FILE = "stock.json"
+
+
+def load_stock():
+    if os.path.exists(STOCK_FILE):
+        try:
+            with open(STOCK_FILE, "r", encoding="utf-8") as f:
+                stock = json.load(f)
+            if isinstance(stock, dict) and "items" in stock:
+                return stock
+        except (json.JSONDecodeError, OSError):
+            pass
+    fresh = {"items": {}}
+    save_stock(fresh)
+    return fresh
+
+
+def save_stock(stock):
+    with open(STOCK_FILE, "w", encoding="utf-8") as f:
+        json.dump(stock, f, ensure_ascii=False, indent=2)
+
+
+def get_stock_item(stock, item_name):
+    if item_name not in stock["items"]:
+        stock["items"][item_name] = {"unit": "পিস", "movements": []}
+    return stock["items"][item_name]
+
+
+def compute_stock_level(item):
+    total_in  = sum(m["qty"] for m in item["movements"] if m["type"] == "in")
+    total_out = sum(m["qty"] for m in item["movements"] if m["type"] == "out")
+    return total_in, total_out, total_in - total_out
+
+
+def render_stock_summary(stock):
+    items = stock["items"]
+    if not items:
+        return
+    total_items = len(items)
+    low_stock_items = []
+    for name, item in items.items():
+        _, _, current = compute_stock_level(item)
+        low_threshold = item.get("low_threshold", 5)
+        if current <= low_threshold:
+            low_stock_items.append(name)
+
+    st.markdown(f"""
+    <div class="sum-row">
+        <div class="sum-card">
+            <div class="lbl">মোট আইটেম</div>
+            <div class="val c-blue">{total_items}</div>
+        </div>
+        <div class="sum-card">
+            <div class="lbl">⚠️ কম স্টক</div>
+            <div class="val {'c-red' if low_stock_items else 'c-green'}">{len(low_stock_items)}</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if low_stock_items:
+        st.markdown(
+            f"<div style='background:rgba(255,94,122,0.08);border:1px solid rgba(255,94,122,0.25);"
+            f"border-radius:10px;padding:10px 16px;margin-bottom:16px;color:#ff5e7a;font-size:13px;'>"
+            f"⚠️ কম স্টকে আছে: {', '.join(low_stock_items)}</div>",
+            unsafe_allow_html=True,
+        )
+
+
+def render_stock_list(stock, is_admin):
+    items = stock["items"]
+    st.markdown('<p class="sec-title-stock">📦 স্টক তালিকা</p>', unsafe_allow_html=True)
+
+    if not items:
+        st.markdown('<p class="empty-msg">কোনো স্টক আইটেম যোগ হয়নি</p>', unsafe_allow_html=True)
+        return
+
+    sorted_names = sorted(items.keys())
+    for name in sorted_names:
+        item = items[name]
+        total_in, total_out, current = compute_stock_level(item)
+        low_threshold = item.get("low_threshold", 5)
+        is_low = current <= low_threshold
+        level_class = "stock-low" if is_low else "stock-ok"
+        badge = '<span class="low-stock-badge">কম স্টক</span>' if is_low else ""
+
+        col_main, col_del = st.columns([11, 1]) if is_admin else (st.container(), None)
+        with col_main:
+            st.markdown(f"""
+            <div class="stock-card">
+                <span class="stock-name">{name}<span class="stock-unit">({item.get('unit','পিস')})</span>{badge}</span>
+                <div class="stock-stats">
+                    <div class="stock-stat">মোট ইন<b class="c-green">{total_in:,.0f}</b></div>
+                    <div class="stock-stat">মোট আউট<b class="c-red">{total_out:,.0f}</b></div>
+                    <div class="stock-stat">বর্তমান স্টক<b class="{level_class}">{current:,.0f}</b></div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        if is_admin and col_del:
+            with col_del:
+                if st.button("✕", key=f"del_stock_item_{name}"):
+                    del stock["items"][name]
+                    save_stock(stock)
+                    st.rerun()
+
+
+def render_stock_movement_log(stock):
+    items = stock["items"]
+    if not items:
+        return
+    with st.expander("🧾 সাম্প্রতিক স্টক মুভমেন্ট দেখুন", expanded=False):
+        all_moves = []
+        for name, item in items.items():
+            for m in item["movements"]:
+                all_moves.append((m.get("date", ""), name, m["type"], m["qty"], m.get("note", "")))
+        all_moves.sort(key=lambda x: x[0], reverse=True)
+        if not all_moves:
+            st.markdown('<p class="empty-msg">কোনো মুভমেন্ট নেই</p>', unsafe_allow_html=True)
+            return
+        for date_s, name, mtype, qty, note in all_moves[:30]:
+            type_label = "🟢 ইন" if mtype == "in" else "🔴 আউট"
+            type_color = "#3dffa0" if mtype == "in" else "#ff5e7a"
+            note_html = f" — {note}" if note else ""
+            st.markdown(
+                f"<div class='row-item'><span class='col-num'>{date_s}</span>"
+                f"<span class='col-name'>{name}{note_html}</span>"
+                f"<span style='color:{type_color};font-weight:700;width:90px;text-align:right'>{type_label}</span>"
+                f"<span style='width:70px;text-align:right;font-weight:700'>{qty:,.0f}</span></div>",
+                unsafe_allow_html=True,
+            )
+
+
+def render_stock_admin_inputs(stock):
+    st.markdown("---")
+    st.markdown("#### ➕ স্টক আপডেট করুন")
+
+    if "stock_counter" not in st.session_state:
+        st.session_state["stock_counter"] = 0
+    sk = st.session_state["stock_counter"]
+
+    existing_items = sorted(stock["items"].keys())
+    item_options = existing_items + [ADD_NEW_LABEL]
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown("##### 🧾 আইটেম নির্বাচন করুন")
+        if item_options:
+            selected_item = st.selectbox("আইটেম", item_options, key=f"stock_item_select_{sk}")
+        else:
+            selected_item = ADD_NEW_LABEL
+
+        new_item_name = ""
+        new_item_unit = "পিস"
+        new_item_threshold = 5
+        if selected_item == ADD_NEW_LABEL:
+            new_item_name = st.text_input("নতুন আইটেমের নাম", placeholder="যেমন: দুধ, চিনি, কাপ...", key=f"stock_new_name_{sk}", max_chars=MAX_NAME_LEN)
+            new_item_unit = st.text_input("একক (Unit)", placeholder="যেমন: কেজি, লিটার, পিস", value="পিস", key=f"stock_new_unit_{sk}", max_chars=20)
+            new_item_threshold = st.number_input("কম-স্টক সতর্কতা সীমা", min_value=0, value=5, step=1, key=f"stock_new_thresh_{sk}")
+
+    with col2:
+        st.markdown("##### 🔄 মুভমেন্ট যোগ করুন")
+        move_type = st.radio("ধরন", ["🟢 স্টক ইন (ঢুকলো)", "🔴 স্টক আউট (বের হলো)"], key=f"stock_move_type_{sk}", horizontal=True)
+        qty_raw = st.text_input("পরিমাণ", placeholder="যেমন: ১০ বা 10", key=f"stock_qty_{sk}", max_chars=20)
+        note = st.text_input("নোট (ঐচ্ছিক)", placeholder="যেমন: সাপ্লায়ার থেকে কেনা", key=f"stock_note_{sk}", max_chars=MAX_NAME_LEN)
+
+        parsed_qty = parse_amount(qty_raw) if qty_raw.strip() else None
+        if qty_raw.strip() and parsed_qty is None:
+            st.caption("⚠️ সঠিক সংখ্যা লিখুন")
+        elif parsed_qty:
+            st.caption(f"✅ পরিমাণ: {parsed_qty:,.0f}")
+
+        if st.button("✅ আপডেট করুন", use_container_width=True, key="stock_update_btn"):
+            if selected_item == ADD_NEW_LABEL:
+                final_name = sanitize_text(new_item_name)
+                final_unit = sanitize_text(new_item_unit) or "পিস"
+            else:
+                final_name = selected_item
+                final_unit = None
+
+            if not final_name:
+                st.warning("আইটেমের নাম দিন!")
+            elif not parsed_qty:
+                st.warning("সঠিক পরিমাণ দিন!")
+            else:
+                item = get_stock_item(stock, final_name)
+                if selected_item == ADD_NEW_LABEL:
+                    item["unit"] = final_unit
+                    item["low_threshold"] = int(new_item_threshold)
+                mtype = "in" if "ইন" in move_type else "out"
+                item["movements"].append({
+                    "type": mtype,
+                    "qty": parsed_qty,
+                    "date": get_today_key(),
+                    "note": sanitize_text(note) if note else "",
+                })
+                save_stock(stock)
+                st.session_state["stock_counter"] += 1
+                st.success("✅ স্টক আপডেট হয়েছে!")
+                st.rerun()
+
+
+def render_stock_page(is_admin):
+    stock = load_stock()
+    render_stock_summary(stock)
+    render_stock_list(stock, is_admin)
+    render_stock_movement_log(stock)
+    if is_admin:
+        render_stock_admin_inputs(stock)
+
+
 # ─────────────────────────────────────────────
 #  MAIN APP
 # ─────────────────────────────────────────────
@@ -1049,22 +1496,32 @@ def main():
         _, _, logout_col = st.columns([6, 1, 1])
         with logout_col:
             if st.button("🚪 লগআউট"):
-                for k in ["logged_in", "username", "role", "viewing_date"]:
+                for k in ["logged_in", "username", "role", "viewing_date", "active_tab"]:
                     st.session_state.pop(k, None)
                 st.rerun()
     else:
         _, _, logout_col = st.columns([8, 1, 1])
         with logout_col:
             if st.button("🚪 বের হন", key="viewer_logout"):
-                for k in ["logged_in", "username", "role", "viewing_date"]:
+                for k in ["logged_in", "username", "role", "viewing_date", "active_tab"]:
                     st.session_state.pop(k, None)
                 st.rerun()
+
+    # ── Main tabs: দৈনিক হিসাব vs স্টক ──
+    active_tab = render_main_tabs()
+
+    if active_tab == "stock":
+        render_stock_page(is_admin)
+        return
 
     # ── Date navigation (header এর পরে) ──
     date_key = render_date_nav(data)
 
     # ── Summary ──
     render_summary(data, date_key)
+
+    # ── Category breakdown ──
+    render_category_breakdown(data, date_key)
 
     # ── Tables ──
     col_left, col_right = st.columns(2)
@@ -1077,6 +1534,7 @@ def main():
     if is_admin:
         render_date_fix(data)
         render_admin_inputs(data, date_key)
+        render_category_manager()
         render_logo_manager()
         render_password_reset()
 
