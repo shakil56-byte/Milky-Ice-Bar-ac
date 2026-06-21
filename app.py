@@ -832,10 +832,12 @@ def render_expense_table(data, date_key, is_admin):
             else:
                 col_main = st.container(); col_btn = None
             cat = e.get("category", "অন্যান্য")
+            desc_text = e.get("desc", "").strip()
+            name_html = f"{desc_text}<span class=\"cat-pill\">{cat}</span>" if desc_text else f"<span class=\"cat-pill\">{cat}</span>"
             with col_main:
                 st.markdown(f"""<div class="row-item">
                     <span class="col-num">{i+1}</span>
-                    <span class="col-name">{e['desc']}<span class="cat-pill">{cat}</span></span>
+                    <span class="col-name">{name_html}</span>
                     <span class="col-amt-e">৳ {e['amount']:,.0f}</span>
                 </div>""", unsafe_allow_html=True)
             if is_admin and col_btn:
@@ -977,7 +979,6 @@ def render_admin_inputs(data, date_key):
 
     with col_e:
         st.markdown("#### ➕ নতুন খরচ যোগ করুন")
-        exp_desc        = st.text_input("বিবরণ", placeholder="যেমন: কাঁচামাল, ভাড়া...", key=f"exp_desc_{ec}", max_chars=MAX_NAME_LEN)
 
         categories = load_categories()
         cat_options = categories + [ADD_NEW_LABEL]
@@ -992,6 +993,13 @@ def render_admin_inputs(data, date_key):
                 max_chars=40,
             )
 
+        exp_desc = st.text_input(
+            "বিবরণ (ঐচ্ছিক)",
+            placeholder="যেমন: ৫ কেজি চাল কেনা... (নাও লিখতে পারেন)",
+            key=f"exp_desc_{ec}",
+            max_chars=MAX_NAME_LEN,
+        )
+
         exp_amount_raw  = st.text_input("টাকা", placeholder="যেমন: ২৫০ বা 250", key=f"exp_amt_{ec}", max_chars=20)
 
         parsed_exp = parse_amount(exp_amount_raw) if exp_amount_raw.strip() else None
@@ -1001,14 +1009,14 @@ def render_admin_inputs(data, date_key):
             st.caption(f"✅ পরিমাণ: ৳ {parsed_exp:,.0f}")
 
         if st.button("✅  খরচ যোগ করুন", use_container_width=True, key="add_exp_btn"):
-            clean_desc = sanitize_text(exp_desc)
+            clean_desc = sanitize_text(exp_desc) if exp_desc.strip() else ""
 
             if selected_cat == ADD_NEW_LABEL:
                 final_cat = sanitize_text(new_cat_name)
             else:
                 final_cat = selected_cat
 
-            if clean_desc and parsed_exp and final_cat:
+            if parsed_exp and final_cat:
                 if selected_cat == ADD_NEW_LABEL:
                     add_category_if_new(final_cat)
                 day = get_day_data(data, date_key)
@@ -1019,7 +1027,7 @@ def render_admin_inputs(data, date_key):
             elif selected_cat == ADD_NEW_LABEL and not final_cat:
                 st.warning("নতুন ক্যাটাগরির নাম দিন!")
             else:
-                st.warning("বিবরণ, ক্যাটাগরি ও সঠিক টাকার পরিমাণ দিন!")
+                st.warning("ক্যাটাগরি ও সঠিক টাকার পরিমাণ দিন!")
 
 
 # ─────────────────────────────────────────────
@@ -1115,41 +1123,6 @@ def render_logo_manager():
                 st.rerun()
         else:
             st.markdown('<p class="empty-msg">কোনো লোগো নেই</p>', unsafe_allow_html=True)
-
-
-# ─────────────────────────────────────────────
-#  ONE-TIME DATE FIX
-# ─────────────────────────────────────────────
-def render_date_fix(data):
-    today_key     = get_today_key()
-    yesterday_key = date_to_key(datetime.today() - timedelta(days=1))
-
-    today_data     = data["dates"].get(today_key,     {"sales": [], "expenses": []})
-    yesterday_data = data["dates"].get(yesterday_key, {"sales": [], "expenses": []})
-
-    today_has_data     = bool(today_data.get("sales")     or today_data.get("expenses"))
-    yesterday_has_data = bool(yesterday_data.get("sales") or yesterday_data.get("expenses"))
-
-    if not (today_has_data and not yesterday_has_data):
-        return
-
-    st.markdown("---")
-    st.markdown(f"""
-    <div style="background:rgba(255,94,122,0.08);border:1px solid rgba(255,94,122,0.3);
-    border-radius:12px;padding:16px 20px;margin-bottom:8px;">
-    <p style="color:#ff5e7a;font-weight:700;font-size:15px;margin-bottom:6px">⚠️ তারিখ সংশোধন দরকার</p>
-    <p style="color:#e6edf3;font-size:13px;margin-bottom:0">
-    আজকের ({today_key}) তারিখে ডেটা আছে কিন্তু এটা আসলে গতকালের ({yesterday_key}) ডেটা।
-    নিচের বাটন ক্লিক করলে সব ডেটা <b>{yesterday_key}</b> তারিখে সরিয়ে দেওয়া হবে।
-    </p></div>
-    """, unsafe_allow_html=True)
-
-    if st.button(f"🔄 ডেটা {yesterday_key} তারিখে সরাও", key="fix_date_btn"):
-        data["dates"][yesterday_key] = data["dates"].pop(today_key)
-        save_data(data)
-        st.session_state["viewing_date"] = yesterday_key
-        st.success(f"✅ সব ডেটা {yesterday_key} তারিখে সরানো হয়েছে!")
-        st.rerun()
 
 
 # ─────────────────────────────────────────────
@@ -1259,7 +1232,6 @@ def main():
 
     # ── Admin only ──
     if is_admin:
-        render_date_fix(data)
         render_admin_inputs(data, date_key)
         render_category_manager()
         render_logo_manager()
