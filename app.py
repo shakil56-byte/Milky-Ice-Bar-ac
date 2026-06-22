@@ -582,7 +582,7 @@ def render_header(viewing_date_key: str):
       </div>
 
       <div class="header-center">
-        <div class="header-eyebrow">চকরিয়া.কক্সবাজার</div>
+        <div class="header-eyebrow">ঢাকা · বাংলাদেশ</div>
         <div class="logo-ring">{logo_inner}</div>
         <div class="header-divider"></div>
         <div class="brand">ঢাকার <span>মিল্কী</span> আইস বার</div>
@@ -1014,7 +1014,7 @@ def parse_amount(raw: str) -> Optional[float]:
 #  EXPENSE CATEGORIES (preset + custom)
 # ─────────────────────────────────────────────
 DEFAULT_CATEGORIES = [
-    "দৈনিক খরচ","দুধ","চিনি","নাস্তা",
+   "দৈনিক খরচ","দুধ","চিনি","নাস্তা",
     "জেনারেটর ও অন্যান্য",
     "ক্যামিকেল",
     "প্যাকেট ও বক্স",
@@ -1177,49 +1177,48 @@ def render_admin_inputs(data, date_key):
 # ─────────────────────────────────────────────
 def render_category_manager():
     st.markdown("---")
-    st.markdown("#### 🏷️ খরচের ক্যাটাগরি ম্যানেজমেন্ট")
+    with st.expander("🏷️ খরচের ক্যাটাগরি ম্যানেজমেন্ট", expanded=False):
+        categories = load_categories()
 
-    categories = load_categories()
+        col_l, col_r = st.columns(2)
+        with col_l:
+            st.markdown(
+                "<p style='font-size:13px;color:#8b949e;margin-bottom:8px'>বর্তমান ক্যাটাগরি সমূহ</p>",
+                unsafe_allow_html=True,
+            )
+            for cat in categories:
+                is_default = cat in DEFAULT_CATEGORIES
+                c1, c2 = st.columns([5, 1])
+                with c1:
+                    st.markdown(f"<div class='cat-pill' style='margin:3px 0'>{cat}</div>", unsafe_allow_html=True)
+                with c2:
+                    if not is_default:
+                        if st.button("✕", key=f"del_cat_{cat}"):
+                            categories.remove(cat)
+                            save_categories(categories)
+                            st.rerun()
 
-    col_l, col_r = st.columns(2)
-    with col_l:
-        st.markdown(
-            "<p style='font-size:13px;color:#8b949e;margin-bottom:8px'>বর্তমান ক্যাটাগরি সমূহ</p>",
-            unsafe_allow_html=True,
-        )
-        for cat in categories:
-            is_default = cat in DEFAULT_CATEGORIES
-            c1, c2 = st.columns([5, 1])
-            with c1:
-                st.markdown(f"<div class='cat-pill' style='margin:3px 0'>{cat}</div>", unsafe_allow_html=True)
-            with c2:
-                if not is_default:
-                    if st.button("✕", key=f"del_cat_{cat}"):
-                        categories.remove(cat)
-                        save_categories(categories)
+        with col_r:
+            st.markdown(
+                "<p style='font-size:13px;color:#8b949e;margin-bottom:8px'>নতুন ক্যাটাগরি যোগ করুন</p>",
+                unsafe_allow_html=True,
+            )
+            if "cat_mgr_counter" not in st.session_state:
+                st.session_state["cat_mgr_counter"] = 0
+            cmc = st.session_state["cat_mgr_counter"]
+            new_cat = st.text_input("ক্যাটাগরির নাম", placeholder="যেমন: প্যাকেজিং", key=f"cat_mgr_input_{cmc}", max_chars=40)
+            if st.button("➕ যোগ করুন", key="cat_mgr_add_btn"):
+                clean = sanitize_text(new_cat)
+                if clean:
+                    if clean in categories:
+                        st.warning("এই ক্যাটাগরি আগে থেকেই আছে!")
+                    else:
+                        add_category_if_new(clean)
+                        st.session_state["cat_mgr_counter"] += 1
+                        st.success(f"✅ '{clean}' ক্যাটাগরি যোগ হয়েছে!")
                         st.rerun()
-
-    with col_r:
-        st.markdown(
-            "<p style='font-size:13px;color:#8b949e;margin-bottom:8px'>নতুন ক্যাটাগরি যোগ করুন</p>",
-            unsafe_allow_html=True,
-        )
-        if "cat_mgr_counter" not in st.session_state:
-            st.session_state["cat_mgr_counter"] = 0
-        cmc = st.session_state["cat_mgr_counter"]
-        new_cat = st.text_input("ক্যাটাগরির নাম", placeholder="যেমন: প্যাকেজিং", key=f"cat_mgr_input_{cmc}", max_chars=40)
-        if st.button("➕ যোগ করুন", key="cat_mgr_add_btn"):
-            clean = sanitize_text(new_cat)
-            if clean:
-                if clean in categories:
-                    st.warning("এই ক্যাটাগরি আগে থেকেই আছে!")
                 else:
-                    add_category_if_new(clean)
-                    st.session_state["cat_mgr_counter"] += 1
-                    st.success(f"✅ '{clean}' ক্যাটাগরি যোগ হয়েছে!")
-                    st.rerun()
-            else:
-                st.warning("ক্যাটাগরির নাম দিন!")
+                    st.warning("ক্যাটাগরির নাম দিন!")
 
 
 # ─────────────────────────────────────────────
@@ -1227,44 +1226,44 @@ def render_category_manager():
 # ─────────────────────────────────────────────
 def render_logo_manager():
     st.markdown("---")
-    st.markdown("#### 🖼️ লোগো ম্যানেজমেন্ট")
-    col_l, col_r = st.columns(2)
+    with st.expander("🖼️ লোগো ম্যানেজমেন্ট", expanded=False):
+        col_l, col_r = st.columns(2)
 
-    with col_l:
-        st.markdown(
-            "<p style='font-size:13px;color:#8b949e;margin-bottom:8px'>"
-            "PNG বা JPEG ফাইল আপলোড করুন (সর্বোচ্চ 2 MB)</p>",
-            unsafe_allow_html=True,
-        )
-        uploaded = st.file_uploader(
-            "লোগো আপলোড করুন",
-            type=["png", "jpg", "jpeg"],
-            key="logo_upload",
-            label_visibility="collapsed",
-        )
-        if uploaded:
-            if uploaded.size > 2 * 1024 * 1024:
-                st.error("❌ ফাইল সাইজ ২ MB এর বেশি হতে পারবে না!")
-            else:
-                if save_logo(uploaded):
-                    st.success("✅ লোগো সফলভাবে আপলোড হয়েছে!")
-                    st.rerun()
-                else:
-                    st.error("❌ শুধু PNG বা JPEG ফাইল গ্রহণযোগ্য!")
-
-    with col_r:
-        if os.path.exists(LOGO_FILE):
-            b64 = load_logo_b64()
+        with col_l:
             st.markdown(
-                f'<img src="data:image/png;base64,{b64}" style="width:100px;border-radius:12px;border:1px solid #2a3548">',
+                "<p style='font-size:13px;color:#8b949e;margin-bottom:8px'>"
+                "PNG বা JPEG ফাইল আপলোড করুন (সর্বোচ্চ 2 MB)</p>",
                 unsafe_allow_html=True,
             )
-            if st.button("🗑️ লোগো মুছুন", key="del_logo_btn"):
-                delete_logo()
-                st.success("✅ লোগো মুছে ফেলা হয়েছে!")
-                st.rerun()
-        else:
-            st.markdown('<p class="empty-msg">কোনো লোগো নেই</p>', unsafe_allow_html=True)
+            uploaded = st.file_uploader(
+                "লোগো আপলোড করুন",
+                type=["png", "jpg", "jpeg"],
+                key="logo_upload",
+                label_visibility="collapsed",
+            )
+            if uploaded:
+                if uploaded.size > 2 * 1024 * 1024:
+                    st.error("❌ ফাইল সাইজ ২ MB এর বেশি হতে পারবে না!")
+                else:
+                    if save_logo(uploaded):
+                        st.success("✅ লোগো সফলভাবে আপলোড হয়েছে!")
+                        st.rerun()
+                    else:
+                        st.error("❌ শুধু PNG বা JPEG ফাইল গ্রহণযোগ্য!")
+
+        with col_r:
+            if os.path.exists(LOGO_FILE):
+                b64 = load_logo_b64()
+                st.markdown(
+                    f'<img src="data:image/png;base64,{b64}" style="width:100px;border-radius:12px;border:1px solid #2a3548">',
+                    unsafe_allow_html=True,
+                )
+                if st.button("🗑️ লোগো মুছুন", key="del_logo_btn"):
+                    delete_logo()
+                    st.success("✅ লোগো মুছে ফেলা হয়েছে!")
+                    st.rerun()
+            else:
+                st.markdown('<p class="empty-msg">কোনো লোগো নেই</p>', unsafe_allow_html=True)
 
 
 # ─────────────────────────────────────────────
@@ -1272,39 +1271,38 @@ def render_logo_manager():
 # ─────────────────────────────────────────────
 def render_password_reset():
     st.markdown("---")
-    st.markdown("#### 🔐 পাসওয়ার্ড পরিবর্তন করুন")
+    with st.expander("🔐 পাসওয়ার্ড পরিবর্তন করুন", expanded=False):
+        if "pw_counter" not in st.session_state:
+            st.session_state["pw_counter"] = 0
+        pc = st.session_state["pw_counter"]
 
-    if "pw_counter" not in st.session_state:
-        st.session_state["pw_counter"] = 0
-    pc = st.session_state["pw_counter"]
+        col_a, col_v = st.columns(2)
 
-    col_a, col_v = st.columns(2)
+        def _pw_section(col, label, color, uname, btn_key, title_key):
+            with col:
+                st.markdown(
+                    f'<div style="background:#1c2230;border:1px solid #2a3548;border-radius:12px;padding:16px 18px;">'
+                    f'<p style="color:{color};font-weight:700;margin-bottom:12px;font-size:14px">{label}</p>',
+                    unsafe_allow_html=True,
+                )
+                new_pw  = st.text_input("নতুন পাসওয়ার্ড", type="password", key=f"new_{title_key}_{pc}", placeholder="নতুন পাসওয়ার্ড লিখুন", max_chars=100)
+                conf_pw = st.text_input("নিশ্চিত করুন",   type="password", key=f"conf_{title_key}_{pc}", placeholder="আবার লিখুন",           max_chars=100)
+                if st.button(f"✅ {label} সেট করুন", use_container_width=True, key=btn_key):
+                    if not new_pw:
+                        st.warning("পাসওয়ার্ড খালি রাখা যাবে না!")
+                    elif len(new_pw) < 6:
+                        st.warning("পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে!")
+                    elif new_pw != conf_pw:
+                        st.error("পাসওয়ার্ড দুটো মিলছে না!")
+                    else:
+                        set_password(uname, new_pw)
+                        st.session_state["pw_counter"] += 1
+                        st.success(f"✅ {label} পরিবর্তন হয়েছে!")
+                        st.rerun()
+                st.markdown("</div>", unsafe_allow_html=True)
 
-    def _pw_section(col, label, color, uname, btn_key, title_key):
-        with col:
-            st.markdown(
-                f'<div style="background:#1c2230;border:1px solid #2a3548;border-radius:12px;padding:16px 18px;">'
-                f'<p style="color:{color};font-weight:700;margin-bottom:12px;font-size:14px">{label}</p>',
-                unsafe_allow_html=True,
-            )
-            new_pw  = st.text_input("নতুন পাসওয়ার্ড", type="password", key=f"new_{title_key}_{pc}", placeholder="নতুন পাসওয়ার্ড লিখুন", max_chars=100)
-            conf_pw = st.text_input("নিশ্চিত করুন",   type="password", key=f"conf_{title_key}_{pc}", placeholder="আবার লিখুন",           max_chars=100)
-            if st.button(f"✅ {label} সেট করুন", use_container_width=True, key=btn_key):
-                if not new_pw:
-                    st.warning("পাসওয়ার্ড খালি রাখা যাবে না!")
-                elif len(new_pw) < 6:
-                    st.warning("পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে!")
-                elif new_pw != conf_pw:
-                    st.error("পাসওয়ার্ড দুটো মিলছে না!")
-                else:
-                    set_password(uname, new_pw)
-                    st.session_state["pw_counter"] += 1
-                    st.success(f"✅ {label} পরিবর্তন হয়েছে!")
-                    st.rerun()
-            st.markdown("</div>", unsafe_allow_html=True)
-
-    _pw_section(col_a, "🔑 অ্যাডমিন পাসওয়ার্ড", "#00c6ff", "admin", "save_admin_pw", "admin_pw")
-    _pw_section(col_v, "👁️ ভিউয়ার পাসওয়ার্ড",  "#f7c948", "milky", "save_view_pw",  "view_pw")
+        _pw_section(col_a, "🔑 অ্যাডমিন পাসওয়ার্ড", "#00c6ff", "admin", "save_admin_pw", "admin_pw")
+        _pw_section(col_v, "👁️ ভিউয়ার পাসওয়ার্ড",  "#f7c948", "milky", "save_view_pw",  "view_pw")
 
 
 # ─────────────────────────────────────────────
