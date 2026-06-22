@@ -480,7 +480,7 @@ def login_page():
     <div class="login-wrap">
         {logo_html}
         <div class="login-title">ঢাকার মিল্কী আইস বার</div>
-        <div class="login-sub">আপনার অ্যাকাউন্টে লগইন করুন</div>
+        <div class="login-sub">Log in</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -545,7 +545,7 @@ def render_header(viewing_date_key: str):
       </div>
 
       <div class="header-center">
-        <div class="header-eyebrow">ঢাকা · বাংলাদেশ</div>
+        <div class="header-eyebrow">Chakaria . Cox's bazar</div>
         <div class="logo-ring">{logo_inner}</div>
         <div class="header-divider"></div>
         <div class="brand">ঢাকার <span>মিল্কী</span> আইস বার</div>
@@ -575,7 +575,7 @@ def render_date_nav(data):
             st.rerun()
 
     with col_mid:
-        today_badge = '<span class="today-tag">আজকের দিন</span>' if is_today else ""
+        today_badge = '<span class="today-tag">Today</span>' if is_today else ""
         st.markdown(f"""
         <div class="date-nav">
             <span class="cur-date">📅 {cur}</span>
@@ -584,7 +584,7 @@ def render_date_nav(data):
 
     with col_next:
         if not is_today:
-            if st.button("পরের দিন ▶", use_container_width=True, key="nav_next"):
+            if st.button("Next day ▶", use_container_width=True, key="nav_next"):
                 nxt = next_date_key(cur)
                 if key_to_date(nxt) <= datetime.today():
                     st.session_state["viewing_date"] = nxt
@@ -592,14 +592,14 @@ def render_date_nav(data):
 
     with col_today:
         if not is_today:
-            if st.button("🏠 আজকে", use_container_width=True, key="nav_today"):
+            if st.button("🏠 Today", use_container_width=True, key="nav_today"):
                 st.session_state["viewing_date"] = today_key
                 st.rerun()
 
-    with st.expander("📆 নির্দিষ্ট তারিখে যান", expanded=False):
+    with st.expander("📆 Go to date", expanded=False):
         cur_dt = key_to_date(cur).date()
         picked = st.date_input(
-            "তারিখ বেছে নিন",
+            "Select date",
             value=cur_dt,
             max_value=datetime.today().date(),
             format="DD/MM/YYYY",
@@ -626,11 +626,11 @@ def render_summary(data, date_key: str):
     grand_total   = carry_fwd + today_net
 
     profit_class = "c-gold" if today_net >= 0 else "c-red"
-    profit_label = "আজকের লাভ" if today_net >= 0 else "আজকের ক্ষতি"
+    profit_label = "Profit" if today_net >= 0 else "Loss"
     profit_sign  = "" if today_net >= 0 else "-"
 
     grand_class  = "c-green" if grand_total >= 0 else "c-red"
-    grand_label  = "সর্বমোট লাভ" if grand_total >= 0 else "সর্বমোট ক্ষতি"
+    grand_label  = "Net profit" if grand_total >= 0 else "Net Loss"
     grand_sign   = "" if grand_total >= 0 else "-"
     cf_sign      = "" if carry_fwd >= 0 else "-"
     cf_color     = "c-purple" if carry_fwd >= 0 else "c-red"
@@ -642,11 +642,11 @@ def render_summary(data, date_key: str):
         st.markdown(f"""
         <div class="sum-row">
             <div class="sum-card">
-                <div class="lbl">মোট বিক্রি</div>
+                <div class="lbl">Gross income</div>
                 <div class="val c-green">৳ {total_sales:,.0f}</div>
             </div>
             <div class="sum-card">
-                <div class="lbl">মোট খরচ</div>
+                <div class="lbl">Expenses</div>
                 <div class="val c-red">৳ {total_expense:,.0f}</div>
             </div>
             <div class="sum-card">
@@ -654,7 +654,7 @@ def render_summary(data, date_key: str):
                 <div class="val {profit_class}">{profit_sign}৳ {abs(today_net):,.0f}</div>
             </div>
             <div class="cf-card">
-                <div class="lbl">🔄 ক্যারি ফরওয়ার্ড</div>
+                <div class="lbl">🔄 Carry forward</div>
                 <div class="val {cf_color}">{cf_sign}৳ {abs(carry_fwd):,.0f}</div>
             </div>
             <div class="sum-card">
@@ -664,17 +664,17 @@ def render_summary(data, date_key: str):
         </div>
         """, unsafe_allow_html=True)
     else:
-        lbl2 = "লাভ" if today_net >= 0 else "ক্ষতি"
+        lbl2 = "Profit" if today_net >= 0 else "loss"
         sgn2 = "" if today_net >= 0 else "-"
         pc2  = "c-gold" if today_net >= 0 else "c-red"
         st.markdown(f"""
         <div class="sum-row">
             <div class="sum-card">
-                <div class="lbl">মোট বিক্রি</div>
+                <div class="lbl">Gross income</div>
                 <div class="val c-green">৳ {total_sales:,.0f}</div>
             </div>
             <div class="sum-card">
-                <div class="lbl">মোট খরচ</div>
+                <div class="lbl">Total Expenses</div>
                 <div class="val c-red">৳ {total_expense:,.0f}</div>
             </div>
             <div class="sum-card">
@@ -796,12 +796,12 @@ def render_sales_table(data, date_key, is_admin):
         if is_admin and is_open and not is_edit:
             ca, cb, _ = st.columns([1, 1, 4])
             with ca:
-                if st.button("✏️ এডিট", key=f"edit_sale_{date_key}_{i}", use_container_width=True):
+                if st.button("✏️ Edit", key=f"edit_sale_{date_key}_{i}", use_container_width=True):
                     st.session_state["edit_target"] = ("sale", date_key, i)
                     st.session_state.pop("menu_open", None)
                     st.rerun()
             with cb:
-                if st.button("🗑️ ডিলিট", key=f"del_sale_{date_key}_{i}", use_container_width=True):
+                if st.button("🗑️ Delete", key=f"del_sale_{date_key}_{i}", use_container_width=True):
                     day["sales"].pop(i)
                     save_data(data)
                     st.session_state.pop("menu_open", None)
@@ -822,7 +822,7 @@ def _render_sale_edit_inline(data, date_key, idx):
         new_amt  = st.text_input("টাকা", value=f"{item['amount']:.0f}", key=f"es_amt_{date_key}_{idx}", max_chars=20)
         c1, c2 = st.columns(2)
         with c1:
-            if st.button("✅ সেভ", use_container_width=True, key=f"es_save_{date_key}_{idx}"):
+            if st.button("✅ Save", use_container_width=True, key=f"es_save_{date_key}_{idx}"):
                 clean = sanitize_text(new_name)
                 amt   = parse_amount(new_amt)
                 if clean and amt:
@@ -893,12 +893,12 @@ def render_expense_table(data, date_key, is_admin):
         if is_admin and is_open and not is_edit:
             ca, cb, _ = st.columns([1, 1, 4])
             with ca:
-                if st.button("✏️ এডিট", key=f"edit_exp_{date_key}_{i}", use_container_width=True):
+                if st.button("✏️ Edit", key=f"edit_exp_{date_key}_{i}", use_container_width=True):
                     st.session_state["edit_target"] = ("exp", date_key, i)
                     st.session_state.pop("menu_open", None)
                     st.rerun()
             with cb:
-                if st.button("🗑️ ডিলিট", key=f"del_exp_{date_key}_{i}", use_container_width=True):
+                if st.button("🗑️ Delete", key=f"del_exp_{date_key}_{i}", use_container_width=True):
                     day["expenses"].pop(i)
                     save_data(data)
                     st.session_state.pop("menu_open", None)
@@ -914,7 +914,7 @@ def _render_expense_edit_inline(data, date_key, idx):
         return
     item = day["expenses"][idx]
     with st.container(border=True):
-        st.markdown(f"<p style='color:#ff5e7a;font-weight:700;font-size:13px;margin-bottom:6px'>✏️ এডিট — খরচ #{idx+1}</p>", unsafe_allow_html=True)
+        st.markdown(f"<p style='color:#ff5e7a;font-weight:700;font-size:13px;margin-bottom:6px'>✏️ Edit-expenses #{idx+1}</p>", unsafe_allow_html=True)
         categories  = load_categories()
         current_cat = item.get("category", "অন্যান্য")
         cat_opts    = categories + [ADD_NEW_LABEL]
@@ -922,12 +922,12 @@ def _render_expense_edit_inline(data, date_key, idx):
         sel_cat     = st.selectbox("ক্যাটাগরি", cat_opts, index=def_idx, key=f"ee_cat_{date_key}_{idx}")
         new_cat_nm  = ""
         if sel_cat == ADD_NEW_LABEL:
-            new_cat_nm = st.text_input("নতুন ক্যাটাগরির নাম", key=f"ee_newcat_{date_key}_{idx}", max_chars=40)
+            new_cat_nm = st.text_input("New Catagory", key=f"ee_newcat_{date_key}_{idx}", max_chars=40)
         new_desc = st.text_input("বিবরণ (ঐচ্ছিক)", value=item.get("desc", ""), key=f"ee_desc_{date_key}_{idx}", max_chars=MAX_NAME_LEN)
         new_amt  = st.text_input("টাকা", value=f"{item['amount']:.0f}", key=f"ee_amt_{date_key}_{idx}", max_chars=20)
         c1, c2 = st.columns(2)
         with c1:
-            if st.button("✅ সেভ", use_container_width=True, key=f"ee_save_{date_key}_{idx}"):
+            if st.button("✅ Save", use_container_width=True, key=f"ee_save_{date_key}_{idx}"):
                 final_cat = sanitize_text(new_cat_nm) if sel_cat == ADD_NEW_LABEL else sel_cat
                 amt       = parse_amount(new_amt)
                 desc      = sanitize_text(new_desc) if new_desc.strip() else ""
