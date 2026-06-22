@@ -487,8 +487,8 @@ def login_page():
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.markdown("<br>", unsafe_allow_html=True)
-        username = st.text_input("👤 ইউজারনেম", placeholder="username লিখুন", max_chars=30)
-        password = st.text_input("🔒 পাসওয়ার্ড", type="password", placeholder="password লিখুন", max_chars=100)
+        username = st.text_input("👤 Username", placeholder="username লিখুন", max_chars=30)
+        password = st.text_input("🔒 Password", type="password", placeholder="password লিখুন", max_chars=100)
         st.markdown("<br>", unsafe_allow_html=True)
 
         if st.button("🔑  লগইন করুন", use_container_width=True):
@@ -536,7 +536,7 @@ def render_header(viewing_date_key: str):
       <div class="header-topbar">
         <div class="topbar-live">
           <span class="live-dot"></span>
-          লাইভ ট্র্যাকিং চালু
+         
         </div>
         <div class="topbar-badges">
           <span class="date-badge">📅 {viewing_date_key}</span>
