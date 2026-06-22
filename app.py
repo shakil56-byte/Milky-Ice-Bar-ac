@@ -208,43 +208,6 @@ def get_carry_forward(data, date_key: str) -> float:
     return total
 
 
-def parse_manual_date(text: str) -> Optional[str]:
-    text = bn_to_en(text.strip())
-    today = datetime.today()
-
-    patterns = [
-        (r"^(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})$",   "dmy"),
-        (r"^(\d{4})[/\-](\d{1,2})[/\-](\d{1,2})$",    "ymd"),
-        (r"^(\d{1,2})[/\-]([A-Za-z]{3})[/\-](\d{4})$","dMonY"),
-        (r"^(\d{1,2})\s+([A-Za-z]{3,9})\s+(\d{4})$",  "dMonY"),
-    ]
-
-    dt = None
-    for pat, fmt in patterns:
-        m = re.match(pat, text, re.IGNORECASE)
-        if not m:
-            continue
-        try:
-            if fmt == "dmy":
-                dt = datetime(int(m.group(3)), int(m.group(2)), int(m.group(1)))
-            elif fmt == "ymd":
-                dt = datetime(int(m.group(1)), int(m.group(2)), int(m.group(3)))
-            elif fmt == "dMonY":
-                mon_str = m.group(2)[:3].capitalize()
-                if mon_str not in MONTHS:
-                    continue
-                dt = datetime(int(m.group(3)), MONTHS.index(mon_str) + 1, int(m.group(1)))
-        except ValueError:
-            continue
-        break
-
-    if dt is None:
-        return None
-    if dt > today:
-        return None
-    return date_to_key(dt)
-
-
 # ─────────────────────────────────────────────
 #  LOGO HELPERS
 # ─────────────────────────────────────────────
@@ -634,28 +597,19 @@ def render_date_nav(data):
                 st.rerun()
 
     with st.expander("📆 নির্দিষ্ট তারিখে যান", expanded=False):
-        st.markdown(
-            "<p style='font-size:12px;color:#8b949e;margin:0 0 6px'>ফরম্যাট: DD/MM/YYYY বা DD-MM-YYYY বা DD/Jan/2025</p>",
-            unsafe_allow_html=True,
+        cur_dt = key_to_date(cur).date()
+        picked = st.date_input(
+            "তারিখ বেছে নিন",
+            value=cur_dt,
+            max_value=datetime.today().date(),
+            format="DD/MM/YYYY",
+            label_visibility="collapsed",
+            key="cal_date_picker",
         )
-        mc1, mc2 = st.columns([3, 1])
-        with mc1:
-            manual_input = st.text_input(
-                "তারিখ লিখুন",
-                placeholder="যেমন: 05/06/2025 বা 5-Jun-2025",
-                label_visibility="collapsed",
-                max_chars=20,
-                key="manual_date_input",
-            )
-        with mc2:
-            if st.button("✅ যান", use_container_width=True, key="manual_date_go"):
-                if manual_input.strip():
-                    parsed = parse_manual_date(manual_input)
-                    if parsed:
-                        st.session_state["viewing_date"] = parsed
-                        st.rerun()
-                    else:
-                        st.error("❌ ভুল ফরম্যাট বা ভবিষ্যতের তারিখ!")
+        if picked and picked != cur_dt:
+            new_key = date_to_key(datetime(picked.year, picked.month, picked.day))
+            st.session_state["viewing_date"] = new_key
+            st.rerun()
 
     return st.session_state["viewing_date"]
 
@@ -1014,7 +968,7 @@ def parse_amount(raw: str) -> Optional[float]:
 #  EXPENSE CATEGORIES (preset + custom)
 # ─────────────────────────────────────────────
 DEFAULT_CATEGORIES = [
-   "দৈনিক খরচ","দুধ","চিনি","নাস্তা",
+    "দৈনিক খরচ","দুধ","চিনি","নাস্তা",
     "জেনারেটর ও অন্যান্য",
     "ক্যামিকেল",
     "প্যাকেট ও বক্স",
