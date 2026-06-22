@@ -582,7 +582,7 @@ def render_header(viewing_date_key: str):
       </div>
 
       <div class="header-center">
-        <div class="header-eyebrow">ঢাকা · বাংলাদেশ</div>
+        <div class="header-eyebrow">চকরিয়া.কক্সবাজার</div>
         <div class="logo-ring">{logo_inner}</div>
         <div class="header-divider"></div>
         <div class="brand">ঢাকার <span>মিল্কী</span> আইস বার</div>
@@ -1014,7 +1014,7 @@ def parse_amount(raw: str) -> Optional[float]:
 #  EXPENSE CATEGORIES (preset + custom)
 # ─────────────────────────────────────────────
 DEFAULT_CATEGORIES = [
-    "নাস্তা",
+    "দৈনিক খরচ","দুধ","চিনি","নাস্তা",
     "জেনারেটর ও অন্যান্য",
     "ক্যামিকেল",
     "প্যাকেট ও বক্স",
