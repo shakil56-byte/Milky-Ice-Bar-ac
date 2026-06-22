@@ -6,7 +6,6 @@ import hashlib
 import hmac
 import re
 import base64
-import urllib.parse
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -765,262 +764,231 @@ def render_category_breakdown(data, date_key: str):
 
 
 # ─────────────────────────────────────────────
-#  TABLE CSS + CONTEXT MENU (right-click / long-press)
+#  TABLE CSS
 # ─────────────────────────────────────────────
 ROW_HEADER_CSS = """<style>
 .row-header{display:flex;align-items:center;background:#161b22;border-bottom:1px solid #2a3548;padding:7px 4px;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:#8b949e;font-weight:600;border-radius:8px 8px 0 0}
-.row-item{display:flex;align-items:center;padding:8px 4px;border-bottom:1px solid rgba(42,53,72,0.4);font-size:14px;position:relative;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
-.row-item:hover{background:rgba(0,198,255,0.05);border-radius:4px}
+.row-item{display:flex;align-items:center;padding:8px 4px;border-bottom:1px solid rgba(42,53,72,0.4);font-size:14px}
+.row-item:hover{background:rgba(255,255,255,0.02);border-radius:4px}
 .col-num{width:32px;color:#8b949e;font-size:12px;flex-shrink:0}
 .col-name{flex:1;font-weight:500}
 .col-amt-s{width:110px;text-align:right;color:#3dffa0;font-weight:700;flex-shrink:0;padding-right:8px}
 .col-amt-e{width:110px;text-align:right;color:#ff5e7a;font-weight:700;flex-shrink:0;padding-right:8px}
-.row-edit-hint{font-size:10px;color:#4a5568;text-align:right;margin:-4px 4px 6px 0;letter-spacing:0.3px}
 
-/* ── context menu popup ── */
-.ctx-menu{
-    position:fixed; z-index:9999; display:none;
-    background:#1c2230; border:1px solid rgba(0,198,255,0.35); border-radius:12px;
-    box-shadow:0 10px 30px rgba(0,0,0,0.5); padding:6px; min-width:150px;
+/* ── kebab menu button ── */
+div[data-testid="stButton"] button[kind="secondary"].kebab-btn,
+.kebab-wrap button {
+    padding:2px 8px !important; min-height:30px !important; font-size:16px !important;
+    background:transparent !important; border:1px solid #2a3548 !important; color:#8b949e !important;
 }
-.ctx-menu.open{ display:flex; flex-direction:column; gap:2px; }
-.ctx-menu a{
-    display:flex; align-items:center; gap:8px; padding:9px 12px; border-radius:8px;
-    color:#e6edf3; text-decoration:none; font-size:13px; font-weight:600;
+.kebab-wrap button:hover { color:#00c6ff !important; border-color:rgba(0,198,255,0.4) !important; }
+
+/* ── action panel (edit/delete row) ── */
+.action-panel {
+    background:#161b22; border:1px solid #2a3548; border-radius:10px;
+    padding:8px 10px; margin:2px 0 8px 0;
 }
-.ctx-menu a:hover{ background:rgba(0,198,255,0.12); }
-.ctx-menu a.danger{ color:#ff5e7a; }
-.ctx-menu a.danger:hover{ background:rgba(255,94,122,0.12); }
-.ctx-menu-overlay{
-    position:fixed; inset:0; z-index:9998; display:none;
-}
-.ctx-menu-overlay.open{ display:block; }
-</style>
-
-<div id="milky-ctx-overlay" class="ctx-menu-overlay" onclick="milkyCloseCtxMenu()"></div>
-<div id="milky-ctx-menu" class="ctx-menu"></div>
-
-<script>
-(function(){
-    if (window.milkyCtxInit) { return; }
-    window.milkyCtxInit = true;
-
-    window.milkyCloseCtxMenu = function(){
-        var m = document.getElementById('milky-ctx-menu');
-        var o = document.getElementById('milky-ctx-overlay');
-        if(m){ m.classList.remove('open'); }
-        if(o){ o.classList.remove('open'); }
-    };
-
-    window.milkyOpenCtxMenu = function(x, y, editHref, delHref){
-        var m = document.getElementById('milky-ctx-menu');
-        var o = document.getElementById('milky-ctx-overlay');
-        if(!m || !o){ return; }
-        m.innerHTML =
-            '<a href="' + editHref + '" target="_self">✏️ এডিট করুন</a>' +
-            '<a href="' + delHref + '" target="_self" class="danger">🗑️ ডিলিট করুন</a>';
-        var vw = window.innerWidth, vh = window.innerHeight;
-        var mw = 160, mh = 90;
-        if(x + mw > vw){ x = vw - mw - 10; }
-        if(y + mh > vh){ y = vh - mh - 10; }
-        m.style.left = x + 'px';
-        m.style.top  = y + 'px';
-        m.classList.add('open');
-        o.classList.add('open');
-    };
-
-    document.addEventListener('contextmenu', function(e){
-        var row = e.target.closest('.row-item[data-edit][data-del]');
-        if(!row){ return; }
-        e.preventDefault();
-        window.milkyOpenCtxMenu(e.clientX, e.clientY, row.getAttribute('data-edit'), row.getAttribute('data-del'));
-    });
-
-    var pressTimer = null;
-    var startX = 0, startY = 0;
-    document.addEventListener('touchstart', function(e){
-        var row = e.target.closest('.row-item[data-edit][data-del]');
-        if(!row){ return; }
-        var touch = e.touches[0];
-        startX = touch.clientX; startY = touch.clientY;
-        pressTimer = setTimeout(function(){
-            window.milkyOpenCtxMenu(startX, startY, row.getAttribute('data-edit'), row.getAttribute('data-del'));
-            if(navigator.vibrate){ navigator.vibrate(30); }
-        }, 500);
-    }, {passive:true});
-    document.addEventListener('touchmove', function(){
-        if(pressTimer){ clearTimeout(pressTimer); pressTimer = null; }
-    }, {passive:true});
-    document.addEventListener('touchend', function(){
-        if(pressTimer){ clearTimeout(pressTimer); pressTimer = null; }
-    }, {passive:true});
-})();
-</script>
-"""
+</style>"""
 
 
 # ─────────────────────────────────────────────
 #  SALES TABLE
 # ─────────────────────────────────────────────
-def _qp_url(**params) -> str:
-    encoded = "&".join(f"{k}={urllib.parse.quote(str(v), safe='')}" for k, v in params.items())
-    return f"?{encoded}"
-
-
 def render_sales_table(data, date_key, is_admin):
     day = get_day_data(data, date_key)
     st.markdown('<p class="sec-title-sales">🟢 বিক্রি</p>', unsafe_allow_html=True)
     st.markdown(ROW_HEADER_CSS, unsafe_allow_html=True)
     rows = day["sales"]
-    if rows:
-        if is_admin:
-            st.markdown(
-                '<p class="row-edit-hint">💡 ডান-ক্লিক করুন (মোবাইলে চেপে ধরুন) এডিট/ডিলিটের জন্য</p>',
-                unsafe_allow_html=True,
-            )
-        st.markdown("""<div class="row-header">
-            <span class="col-num">#</span>
-            <span class="col-name">নাম</span>
-            <span class="col-amt-s">টাকা</span>
-        </div>""", unsafe_allow_html=True)
-        for i, s in enumerate(rows):
-            if is_admin:
-                edit_href = _qp_url(action="edit", type="sale", date=date_key, idx=i)
-                del_href  = _qp_url(action="delete", type="sale", date=date_key, idx=i)
-                st.markdown(f"""<div class="row-item" data-edit="{edit_href}" data-del="{del_href}">
-                    <span class="col-num">{i+1}</span>
-                    <span class="col-name">{s['name']}</span>
-                    <span class="col-amt-s">৳ {s['amount']:,.0f}</span>
-                </div>""", unsafe_allow_html=True)
-                if st.session_state.get("edit_target") == ("sale", date_key, i):
-                    render_sale_edit_form(data, date_key, i)
-            else:
-                st.markdown(f"""<div class="row-item">
-                    <span class="col-num">{i+1}</span>
-                    <span class="col-name">{s['name']}</span>
-                    <span class="col-amt-s">৳ {s['amount']:,.0f}</span>
-                </div>""", unsafe_allow_html=True)
-    else:
+    if not rows:
         st.markdown('<p class="empty-msg">কোনো বিক্রি যোগ হয়নি</p>', unsafe_allow_html=True)
+        return
+
+    st.markdown("""<div class="row-header">
+        <span class="col-num">#</span>
+        <span class="col-name">নাম</span>
+        <span class="col-amt-s">টাকা</span>
+    </div>""", unsafe_allow_html=True)
+
+    for i, s in enumerate(rows):
+        row_id = f"sale_{date_key}_{i}"
+        is_open = st.session_state.get("menu_open") == row_id
+        is_edit = st.session_state.get("edit_target") == ("sale", date_key, i)
+
+        if is_admin:
+            col_data, col_kebab = st.columns([11, 1])
+        else:
+            col_data = st.container()
+
+        with col_data:
+            bg = "background:rgba(0,198,255,0.07);border-radius:6px;" if is_open or is_edit else ""
+            st.markdown(f"""<div class="row-item" style="{bg}">
+                <span class="col-num">{i+1}</span>
+                <span class="col-name">{s['name']}</span>
+                <span class="col-amt-s">৳ {s['amount']:,.0f}</span>
+            </div>""", unsafe_allow_html=True)
+
+        if is_admin:
+            with col_kebab:
+                label = "✕" if (is_open or is_edit) else "⋮"
+                if st.button(label, key=f"kebab_sale_{date_key}_{i}"):
+                    if is_open or is_edit:
+                        st.session_state.pop("menu_open", None)
+                        st.session_state.pop("edit_target", None)
+                    else:
+                        st.session_state["menu_open"] = row_id
+                        st.session_state.pop("edit_target", None)
+                    st.rerun()
+
+        if is_admin and is_open and not is_edit:
+            ca, cb, _ = st.columns([1, 1, 4])
+            with ca:
+                if st.button("✏️ এডিট", key=f"edit_sale_{date_key}_{i}", use_container_width=True):
+                    st.session_state["edit_target"] = ("sale", date_key, i)
+                    st.session_state.pop("menu_open", None)
+                    st.rerun()
+            with cb:
+                if st.button("🗑️ ডিলিট", key=f"del_sale_{date_key}_{i}", use_container_width=True):
+                    day["sales"].pop(i)
+                    save_data(data)
+                    st.session_state.pop("menu_open", None)
+                    st.rerun()
+
+        if is_admin and is_edit:
+            _render_sale_edit_inline(data, date_key, i)
 
 
-def render_sale_edit_form(data, date_key, idx):
+def _render_sale_edit_inline(data, date_key, idx):
     day = get_day_data(data, date_key)
     if idx >= len(day["sales"]):
         return
     item = day["sales"][idx]
     with st.container(border=True):
-        st.markdown(f"<p style='color:#00c6ff;font-weight:700;font-size:13px;margin-bottom:8px'>✏️ এডিট করুন — বিক্রি #{idx+1}</p>", unsafe_allow_html=True)
-        new_name = st.text_input("নাম", value=item["name"], key=f"edit_sale_name_{date_key}_{idx}", max_chars=MAX_NAME_LEN)
-        new_amount_raw = st.text_input("টাকা", value=f"{item['amount']:.0f}", key=f"edit_sale_amt_{date_key}_{idx}", max_chars=20)
+        st.markdown(f"<p style='color:#00c6ff;font-weight:700;font-size:13px;margin-bottom:6px'>✏️ এডিট — বিক্রি #{idx+1}</p>", unsafe_allow_html=True)
+        new_name = st.text_input("নাম", value=item["name"], key=f"es_name_{date_key}_{idx}", max_chars=MAX_NAME_LEN)
+        new_amt  = st.text_input("টাকা", value=f"{item['amount']:.0f}", key=f"es_amt_{date_key}_{idx}", max_chars=20)
         c1, c2 = st.columns(2)
         with c1:
-            if st.button("✅ সেভ করুন", use_container_width=True, key=f"edit_sale_save_{date_key}_{idx}"):
-                clean_name = sanitize_text(new_name)
-                parsed_amt = parse_amount(new_amount_raw)
-                if clean_name and parsed_amt:
-                    day["sales"][idx] = {"name": clean_name, "amount": parsed_amt}
+            if st.button("✅ সেভ", use_container_width=True, key=f"es_save_{date_key}_{idx}"):
+                clean = sanitize_text(new_name)
+                amt   = parse_amount(new_amt)
+                if clean and amt:
+                    day["sales"][idx] = {"name": clean, "amount": amt}
                     save_data(data)
                     st.session_state.pop("edit_target", None)
-                    st.query_params.clear()
                     st.rerun()
                 else:
-                    st.warning("সঠিক নাম ও টাকার পরিমাণ দিন!")
+                    st.warning("সঠিক নাম ও টাকা দিন!")
         with c2:
-            if st.button("✕ বাতিল", use_container_width=True, key=f"edit_sale_cancel_{date_key}_{idx}"):
+            if st.button("✕ বাতিল", use_container_width=True, key=f"es_cancel_{date_key}_{idx}"):
                 st.session_state.pop("edit_target", None)
-                st.query_params.clear()
                 st.rerun()
 
 
 # ─────────────────────────────────────────────
-#  EXPENSE TABLE (with category tag)
+#  EXPENSE TABLE
 # ─────────────────────────────────────────────
 def render_expense_table(data, date_key, is_admin):
     day = get_day_data(data, date_key)
     st.markdown('<p class="sec-title-expense">🔴 খরচ</p>', unsafe_allow_html=True)
     st.markdown(ROW_HEADER_CSS, unsafe_allow_html=True)
     rows = day["expenses"]
-    if rows:
-        if is_admin:
-            st.markdown(
-                '<p class="row-edit-hint">💡 ডান-ক্লিক করুন (মোবাইলে চেপে ধরুন) এডিট/ডিলিটের জন্য</p>',
-                unsafe_allow_html=True,
-            )
-        st.markdown("""<div class="row-header">
-            <span class="col-num">#</span>
-            <span class="col-name">বিবরণ</span>
-            <span class="col-amt-e">টাকা</span>
-        </div>""", unsafe_allow_html=True)
-        for i, e in enumerate(rows):
-            cat = e.get("category", "অন্যান্য")
-            desc_text = e.get("desc", "").strip()
-            name_html = f"{desc_text}<span class=\"cat-pill\">{cat}</span>" if desc_text else f"<span class=\"cat-pill\">{cat}</span>"
-            if is_admin:
-                edit_href = _qp_url(action="edit", type="exp", date=date_key, idx=i)
-                del_href  = _qp_url(action="delete", type="exp", date=date_key, idx=i)
-                st.markdown(f"""<div class="row-item" data-edit="{edit_href}" data-del="{del_href}">
-                    <span class="col-num">{i+1}</span>
-                    <span class="col-name">{name_html}</span>
-                    <span class="col-amt-e">৳ {e['amount']:,.0f}</span>
-                </div>""", unsafe_allow_html=True)
-                if st.session_state.get("edit_target") == ("exp", date_key, i):
-                    render_expense_edit_form(data, date_key, i)
-            else:
-                st.markdown(f"""<div class="row-item">
-                    <span class="col-num">{i+1}</span>
-                    <span class="col-name">{name_html}</span>
-                    <span class="col-amt-e">৳ {e['amount']:,.0f}</span>
-                </div>""", unsafe_allow_html=True)
-    else:
+    if not rows:
         st.markdown('<p class="empty-msg">কোনো খরচ যোগ হয়নি</p>', unsafe_allow_html=True)
+        return
+
+    st.markdown("""<div class="row-header">
+        <span class="col-num">#</span>
+        <span class="col-name">বিবরণ</span>
+        <span class="col-amt-e">টাকা</span>
+    </div>""", unsafe_allow_html=True)
+
+    for i, e in enumerate(rows):
+        row_id  = f"exp_{date_key}_{i}"
+        is_open = st.session_state.get("menu_open") == row_id
+        is_edit = st.session_state.get("edit_target") == ("exp", date_key, i)
+        cat       = e.get("category", "অন্যান্য")
+        desc_text = e.get("desc", "").strip()
+        name_html = (f"{desc_text}<span class='cat-pill'>{cat}</span>" if desc_text
+                     else f"<span class='cat-pill'>{cat}</span>")
+
+        if is_admin:
+            col_data, col_kebab = st.columns([11, 1])
+        else:
+            col_data = st.container()
+
+        with col_data:
+            bg = "background:rgba(255,94,122,0.07);border-radius:6px;" if is_open or is_edit else ""
+            st.markdown(f"""<div class="row-item" style="{bg}">
+                <span class="col-num">{i+1}</span>
+                <span class="col-name">{name_html}</span>
+                <span class="col-amt-e">৳ {e['amount']:,.0f}</span>
+            </div>""", unsafe_allow_html=True)
+
+        if is_admin:
+            with col_kebab:
+                label = "✕" if (is_open or is_edit) else "⋮"
+                if st.button(label, key=f"kebab_exp_{date_key}_{i}"):
+                    if is_open or is_edit:
+                        st.session_state.pop("menu_open", None)
+                        st.session_state.pop("edit_target", None)
+                    else:
+                        st.session_state["menu_open"] = row_id
+                        st.session_state.pop("edit_target", None)
+                    st.rerun()
+
+        if is_admin and is_open and not is_edit:
+            ca, cb, _ = st.columns([1, 1, 4])
+            with ca:
+                if st.button("✏️ এডিট", key=f"edit_exp_{date_key}_{i}", use_container_width=True):
+                    st.session_state["edit_target"] = ("exp", date_key, i)
+                    st.session_state.pop("menu_open", None)
+                    st.rerun()
+            with cb:
+                if st.button("🗑️ ডিলিট", key=f"del_exp_{date_key}_{i}", use_container_width=True):
+                    day["expenses"].pop(i)
+                    save_data(data)
+                    st.session_state.pop("menu_open", None)
+                    st.rerun()
+
+        if is_admin and is_edit:
+            _render_expense_edit_inline(data, date_key, i)
 
 
-def render_expense_edit_form(data, date_key, idx):
+def _render_expense_edit_inline(data, date_key, idx):
     day = get_day_data(data, date_key)
     if idx >= len(day["expenses"]):
         return
     item = day["expenses"][idx]
     with st.container(border=True):
-        st.markdown(f"<p style='color:#ff5e7a;font-weight:700;font-size:13px;margin-bottom:8px'>✏️ এডিট করুন — খরচ #{idx+1}</p>", unsafe_allow_html=True)
-
-        categories = load_categories()
+        st.markdown(f"<p style='color:#ff5e7a;font-weight:700;font-size:13px;margin-bottom:6px'>✏️ এডিট — খরচ #{idx+1}</p>", unsafe_allow_html=True)
+        categories  = load_categories()
         current_cat = item.get("category", "অন্যান্য")
-        cat_options = categories + [ADD_NEW_LABEL]
-        default_idx = cat_options.index(current_cat) if current_cat in cat_options else 0
-        selected_cat = st.selectbox("ক্যাটাগরি", cat_options, index=default_idx, key=f"edit_exp_cat_{date_key}_{idx}")
-
-        new_cat_name = ""
-        if selected_cat == ADD_NEW_LABEL:
-            new_cat_name = st.text_input("নতুন ক্যাটাগরির নাম", placeholder="যেমন: প্যাকেজিং", key=f"edit_exp_new_cat_{date_key}_{idx}", max_chars=40)
-
-        new_desc = st.text_input("বিবরণ (ঐচ্ছিক)", value=item.get("desc", ""), key=f"edit_exp_desc_{date_key}_{idx}", max_chars=MAX_NAME_LEN)
-        new_amount_raw = st.text_input("টাকা", value=f"{item['amount']:.0f}", key=f"edit_exp_amt_{date_key}_{idx}", max_chars=20)
-
+        cat_opts    = categories + [ADD_NEW_LABEL]
+        def_idx     = cat_opts.index(current_cat) if current_cat in cat_opts else 0
+        sel_cat     = st.selectbox("ক্যাটাগরি", cat_opts, index=def_idx, key=f"ee_cat_{date_key}_{idx}")
+        new_cat_nm  = ""
+        if sel_cat == ADD_NEW_LABEL:
+            new_cat_nm = st.text_input("নতুন ক্যাটাগরির নাম", key=f"ee_newcat_{date_key}_{idx}", max_chars=40)
+        new_desc = st.text_input("বিবরণ (ঐচ্ছিক)", value=item.get("desc", ""), key=f"ee_desc_{date_key}_{idx}", max_chars=MAX_NAME_LEN)
+        new_amt  = st.text_input("টাকা", value=f"{item['amount']:.0f}", key=f"ee_amt_{date_key}_{idx}", max_chars=20)
         c1, c2 = st.columns(2)
         with c1:
-            if st.button("✅ সেভ করুন", use_container_width=True, key=f"edit_exp_save_{date_key}_{idx}"):
-                if selected_cat == ADD_NEW_LABEL:
-                    final_cat = sanitize_text(new_cat_name)
-                else:
-                    final_cat = selected_cat
-                parsed_amt = parse_amount(new_amount_raw)
-                clean_desc = sanitize_text(new_desc) if new_desc.strip() else ""
-
-                if parsed_amt and final_cat:
-                    if selected_cat == ADD_NEW_LABEL:
+            if st.button("✅ সেভ", use_container_width=True, key=f"ee_save_{date_key}_{idx}"):
+                final_cat = sanitize_text(new_cat_nm) if sel_cat == ADD_NEW_LABEL else sel_cat
+                amt       = parse_amount(new_amt)
+                desc      = sanitize_text(new_desc) if new_desc.strip() else ""
+                if amt and final_cat:
+                    if sel_cat == ADD_NEW_LABEL:
                         add_category_if_new(final_cat)
-                    day["expenses"][idx] = {"desc": clean_desc, "amount": parsed_amt, "category": final_cat}
+                    day["expenses"][idx] = {"desc": desc, "amount": amt, "category": final_cat}
                     save_data(data)
                     st.session_state.pop("edit_target", None)
-                    st.query_params.clear()
                     st.rerun()
                 else:
-                    st.warning("সঠিক ক্যাটাগরি ও টাকার পরিমাণ দিন!")
+                    st.warning("সঠিক ক্যাটাগরি ও টাকা দিন!")
         with c2:
-            if st.button("✕ বাতিল", use_container_width=True, key=f"edit_exp_cancel_{date_key}_{idx}"):
+            if st.button("✕ বাতিল", use_container_width=True, key=f"ee_cancel_{date_key}_{idx}"):
                 st.session_state.pop("edit_target", None)
-                st.query_params.clear()
                 st.rerun()
 
 
@@ -1342,51 +1310,6 @@ def render_password_reset():
 # ─────────────────────────────────────────────
 #  MAIN APP
 # ─────────────────────────────────────────────
-def handle_row_actions(data, is_admin):
-    if not is_admin:
-        return
-    qp = st.query_params
-    action = qp.get("action")
-    if not action:
-        return
-
-    item_type = qp.get("type")
-    date_param = qp.get("date")
-    idx_param  = qp.get("idx")
-
-    if item_type not in ("sale", "exp") or date_param is None or idx_param is None:
-        st.query_params.clear()
-        return
-
-    try:
-        idx = int(idx_param)
-    except ValueError:
-        st.query_params.clear()
-        return
-
-    if date_param not in data["dates"]:
-        st.query_params.clear()
-        return
-
-    day = data["dates"][date_param]
-    list_key = "sales" if item_type == "sale" else "expenses"
-    rows = day.get(list_key, [])
-
-    if idx < 0 or idx >= len(rows):
-        st.query_params.clear()
-        return
-
-    if action == "delete":
-        rows.pop(idx)
-        save_data(data)
-        st.query_params.clear()
-        st.rerun()
-    elif action == "edit":
-        st.session_state["edit_target"] = (item_type, date_param, idx)
-        st.session_state["viewing_date"] = date_param
-        st.query_params.clear()
-
-
 def main():
     inject_css()
     load_passwords()
@@ -1400,8 +1323,6 @@ def main():
 
     data     = load_data()
     is_admin = st.session_state.role == "admin"
-
-    handle_row_actions(data, is_admin)
 
     if not is_admin:
         st.markdown("""<style>
