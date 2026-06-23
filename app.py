@@ -192,7 +192,7 @@ def inject_css():
     .header-divider { width:56px; height:1px; background:linear-gradient(90deg,transparent,rgba(0,198,255,0.45),transparent); }
     .brand { font-family:'Tiro Bangla',serif; font-size:30px; color:#d0f0ff; text-align:center; line-height:1.3; }
     .brand span { color:#00c6ff; }
-    .header-tagline { font-size:12px; color:rgba(255,255,255,0.25); letter-spacing:1.5px; text-align:center; }
+    .header-tagline { font-size:12px; color:#ffffff; letter-spacing:1.5px; text-align:center; }
 
     .date-badge { display:inline-block; background:rgba(247,201,72,0.08); border:1px solid rgba(247,201,72,0.22); border-radius:20px; padding:4px 14px; font-size:12px; color:#f7c948; letter-spacing:1px; font-weight:600; }
     .role-badge { display:inline-block; padding:4px 14px; border-radius:20px; font-size:11px; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; }
