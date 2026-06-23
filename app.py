@@ -293,9 +293,7 @@ def render_header(viewing_date_key: str):
     st.markdown(f"""
     <div class="app-header">
       <div class="header-topbar">
-        <div class="topbar-left">
-          <span style="font-size:13px;">ঢাকার মিল্কী আইস বার</span>
-        </div>
+        <div class="topbar-left"></div>
         <div class="topbar-badges">
           <span class="date-badge">📅 {viewing_date_key}</span>
           <span class="role-badge {role_class}">{'🔑' if role == 'admin' else '👁️'} {role_label}</span>
